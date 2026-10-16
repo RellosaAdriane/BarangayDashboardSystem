@@ -1,0 +1,16 @@
+{
+  "name": "barangay-monitoring-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Barangay monitoring dashboard with a starter Express API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "express": "^4.21.2",
+    "multer": "^2.4.0"
+  }
+}

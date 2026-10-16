@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BarangayWatch | Monitoring Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-icon">⌂</div><div><h1>BarangayWatch</h1><small>Security & Monitoring</small></div></div>
+    <div>
+      <div class="nav-label">MAIN MENU</div>
+      <nav class="nav">
+        <a class="active" href="#overview"><span class="ico">▦</span>Dashboard</a>
+        <a href="#camera"><span class="ico">▣</span>Live Cameras</a>
+        <a href="#alerts"><span class="ico">⚠</span>Intruder Alerts</a>
+        <a href="#incidents"><span class="ico">▤</span>Incident History</a>
+      </nav>
+    </div>
+    <div class="sidebar-bottom">Barangay Security Monitoring<br>Authorized personnel only<br><span id="sideDate"></span></div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div><h2>Barangay Monitoring Dashboard</h2><p>Security overview and incident monitoring</p></div>
+      <div class="top-actions"><span class="status-pill">● Dashboard</span><div class="avatar">BA</div></div>
+    </header>
+    <div class="content" id="overview">
+      <div class="section-head"><div><h3>Overview</h3><div class="sub" id="todayText">Today's security status</div></div><button class="btn" id="refreshBtn">↻ Refresh view</button></div>
+      <section class="stats">
+        <div class="stat"><div><div class="stat-label">Total Cameras</div><div class="stat-num" id="totalCams">1</div><div class="stat-note">Configured camera feeds</div></div><div class="stat-icon">▣</div></div>
+        <div class="stat"><div><div class="stat-label">Cameras Online</div><div class="stat-num" id="onlineCams">0</div><div class="stat-note">Feed connection status</div></div><div class="stat-icon green">⌁</div></div>
+        <div class="stat"><div><div class="stat-label">Active Alerts</div><div class="stat-num" id="activeCount">0</div><div class="stat-note">Unresolved incidents</div></div><div class="stat-icon red">⚠</div></div>
+        <div class="stat"><div><div class="stat-label">Incidents Today</div><div class="stat-num" id="todayCount">0</div><div class="stat-note">Recorded incidents</div></div><div class="stat-icon amber">▤</div></div>
+      </section>
+      <div class="grid-main">
+        <div>
+          <section class="panel" id="camera">
+            <div class="panel-head"><div><h3>Live Camera Feed</h3><div class="sub">ESP32-CAM stream preview</div></div><span class="tag amber" id="feedBadge">NOT CONNECTED</span></div>
+            <div class="panel-body">
+              <div class="camera-frame">
+                <img id="cameraImg" alt="ESP32-CAM live stream">
+                <svg id="faceOverlay" class="face-overlay" aria-hidden="true"></svg>
+                <div class="camera-placeholder" id="cameraPlaceholder"><div class="cam-icon">▣</div><strong>Camera feed not connected</strong><span>Enter your ESP32-CAM stream URL below,<br>then select Connect Camera.</span></div>
+                <span class="live-tag" id="liveTag">● LIVE</span>
+              </div>
+              <div class="camera-meta"><span class="small" id="cameraStatus">Status: Waiting for camera URL</span><div class="cam-controls"><button class="btn primary" id="connectBtn">Connect Camera</button><button class="btn" id="disconnectBtn">Disconnect</button></div></div>
+              <div class="field-row"><input id="cameraUrl" type="url" placeholder="Example: http://192.168.1.102:81/stream" aria-label="ESP32-CAM stream URL"><button class="btn" id="saveUrlBtn">Use URL</button></div>
+              <div class="hint">Use your ESP32-CAM stream endpoint. The phone/computer and camera usually need the same Wi-Fi. A localhost address only works on the device running the server.</div>
+            </div>
+          </section>
+          <section class="panel" id="faceDetection">
+            <div class="panel-head">
+              <div><h3>Face Detection</h3><div class="sub">Automatic CompreFace recognition</div></div>
+              <span class="tag amber" id="detectionBadge">READY</span>
+            </div>
+            <div class="panel-body">
+              <p id="detectionResult">Waiting for camera...</p>
+              <p class="sub" id="detectionDetails">Connect the camera to start face tracking.</p>
+              <button class="btn primary" id="detectFaceBtn" type="button">Check Camera</button>
+            </div>
+          </section>
+          <section class="panel" id="incidents">
+            <div class="panel-head"><div><h3>Incident History</h3><div class="sub">Incident records from the backend or this session</div></div><button class="btn" id="reloadIncidentsBtn">Reload</button></div>
+            <div class="table-wrap"><table><thead><tr><th>Incident ID</th><th>Event</th><th>Camera</th><th>Date & Time</th><th>Status</th></tr></thead><tbody id="incidentRows"><tr><td colspan="5" class="empty">Loading incidents…</td></tr></tbody></table></div>
+          </section>
+        </div>
+        <div>
+          <section class="panel" id="alerts">
+            <div class="panel-head"><div><h3>Intruder Alerts</h3><div class="sub">Latest security events</div></div><button class="btn" id="testAlertBtn">＋ Test alert</button></div>
+            <div class="panel-body"><div class="alert-list" id="alertList"><div class="empty">Loading alerts…</div></div></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><div><h3>Camera Status</h3><div class="sub">Configured monitoring devices</div></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Device</th><th>Status</th></tr></thead><tbody><tr><td>ESP32-CAM 01</td><td id="deviceStatus" class="offline">Offline</td></tr></tbody></table></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h3>Quick Incident Report</h3></div>
+            <div class="panel-body">
+              <label for="eventType" class="sub">Incident type</label>
+              <select id="eventType" class="form-control">
+                <option>Possible Intruder</option><option>Suspicious Movement</option><option>Manual Security Report</option><option>Camera Tampering</option>
+              </select>
+              <label for="eventNote" class="sub">Details (optional)</label>
+              <textarea id="eventNote" rows="3" placeholder="Add location or observation..." class="form-control"></textarea>
+              <button class="btn primary full" id="reportBtn">Record Incident</button>
+              <div class="hint">Incident data is sent to the Node.js API when available. If the API is unavailable, this page shows a local demo record only.</div>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="footer">BarangayWatch Dashboard · VS Code project · Secure the API before deployment</div>
+    </div>
+  </main>
+</div>
+<script src="/script.js"></script>
+<script src="/detection.js"></script>
+</body>
+</html>
