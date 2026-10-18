@@ -1,71 +1,55 @@
-# Barangay Monitoring Dashboard (VS Code)
+# BarangayPOB-3A Dashboard
 
-## Project structure
+## MySQL database for XAMPP
 
-```text
-barangay-dashboard-vscode/
-├── public/
-│   ├── index.html
-│   ├── style.css
-│   └── script.js
-├── server.js
-├── package.json
-└── README.md
+The import file is [`database/barangay_dashboard.sql`](database/barangay_dashboard.sql). It creates the `barangay_dashboard` database and tables for users/roles, cameras, incident reports/history, dashboard announcements, assigned tasks, and audit logs.
+
+To import it:
+
+1. Start **MySQL** in the XAMPP Control Panel.
+2. Open `http://localhost/phpmyadmin`.
+3. Select **Import**, choose `database/barangay_dashboard.sql`, then click **Import** at the bottom.
+4. Confirm that `barangay_dashboard` appears in the left sidebar.
+
+If you imported the original database file before account approval was added, import [`database/registration_approval_migration.sql`](database/registration_approval_migration.sql) once as well. This adds the approval fields while keeping existing user accounts approved.
+
+If you imported the database before profile fields were added, import [`database/user_profile_migration.sql`](database/user_profile_migration.sql) once. New first-admin setup and registration ask for first name, last name, gender, and date of birth.
+
+For a database that already has those profile fields, import [`database/middle_name_migration.sql`](database/middle_name_migration.sql) once to add the optional middle name field.
+
+The SQL file creates an empty database. It does not insert a preset user or password. Passwords must be stored as secure hashes by the application; do not insert a plain-text password into `users.password_hash`.
+
+## Role permissions
+
+- **Tanod:** view camera feeds, read incident history and announcements, and view assigned tasks.
+- **Barangay Captain:** view feeds, submit reports, publish announcements, and assign tasks.
+- **Admin:** configure camera URLs, manage/archive records, view camera totals and online status, and assign user roles.
+
+`users.role` uses `tanod`, `captain`, or `admin`. Camera availability is represented by `cameras.last_status`; archived records stay in the database and can be filtered from the public dashboard.
+
+## Configure and run
+
+1. Add the settings from `.env.example` to your existing `.env` (or copy the example if you do not have one), then set the MySQL details to match XAMPP. A default XAMPP install commonly uses `root` with an empty password; use the credentials configured on your computer. Keep any camera/CompreFace values already in `.env`.
+2. Set `SESSION_SECRET` to a long random value.
+3. Install dependencies and start the app:
+
+```bash
+npm install
+npm start
 ```
 
-## Run in VS Code
+4. Open `http://localhost:3000`. The public landing page has **Log in** and **Create account** actions. If there is no approved admin yet, the first account flow creates the administrator (password must be at least 10 characters).
+5. Other users can request Tanod or Barangay Captain access from **Create account**. Their accounts stay pending and cannot log in until an admin approves them. Admins can approve or decline requests from the **Account requests** panel.
+6. Use the Admin panel to add cameras and create accounts directly when needed.
 
-1. Extract this ZIP file.
-2. Open the extracted `barangay-dashboard-vscode` folder in VS Code.
-3. Open **Terminal → New Terminal**.
-4. Run:
+The public landing page does not expose dashboard data. Approved users must log in before dashboard APIs are available. A declined username remains reserved in the account table; an admin should contact the applicant if a correction and resubmission are needed.
 
-   ```bash
-   npm install
-   npm start
-   ```
+The app now stores accounts and operational records in MySQL and checks roles on the server:
 
-5. Open `http://localhost:3000` in your browser.
-6. Test the API at `http://localhost:3000/api/health`.
+- **Tanod:** view feeds, read incident history and announcements, and update assigned task status.
+- **Barangay Captain:** all Tanod viewing, submit incident reports, publish announcements, and assign tasks.
+- **Admin:** all features, configure/archive cameras, archive incidents, view counts, create accounts, and change roles.
 
-## API routes included
+The camera online total reflects a feed that the dashboard has successfully loaded. Camera stream URLs must be reachable by the browser on the user's network. For real use, serve the app over HTTPS and use a persistent session store instead of the development memory store.
 
-- `GET /api/health` — confirms the server is running.
-- `GET /api/incidents` — returns incident records.
-- `POST /api/incidents` — creates an incident. Example JSON:
-
-  ```json
-  {
-    "type": "Possible Intruder",
-    "note": "Motion reported near the front gate",
-    "camera": "ESP32-CAM 01"
-  }
-  ```
-- `GET /api/faces/recognize` — captures an image from the configured ESP32-CAM capture endpoint and returns face boxes and CompreFace matches.
-
-## Face tracking setup
-
-Set these values in the local `.env` file (it is excluded from Git):
-
-```env
-COMPREFACE_URL=http://localhost:8000
-COMPREFACE_API_KEY=your-recognition-service-api-key
-ESP32_CAPTURE_URL=http://your-camera-address/capture
-COMPREFACE_DET_PROB_THRESHOLD=0.5
-COMPREFACE_RECOGNITION_THRESHOLD=0.8
-```
-
-`ESP32_CAPTURE_URL` must return a still JPEG image; it can be different from the stream URL entered in the dashboard. Connect the camera in the dashboard to start automatic face checks. Recognized matches are outlined in green; faces without a sufficiently strong match are outlined in yellow and labeled “Unfamiliar.” Boxes also turn yellow while a new recognition check is running. Keep the API key on the server and never put it in browser code.
-
-`COMPREFACE_DET_PROB_THRESHOLD` controls how confident CompreFace must be that a region is a face. It defaults to `0.5`; lower values can help with dim or angled faces but may add false detections. Restart the Node.js server after changing `.env`.
-
-`COMPREFACE_RECOGNITION_THRESHOLD` controls the minimum similarity required to use a CompreFace subject name. It defaults to `0.8` (80%); lower-scoring matches are shown as “Unfamiliar” without a name or percentage. Increase it to reduce false name matches, or lower it if enrolled people are often marked unfamiliar. Restart the Node.js server after changing `.env`.
-
-## Important limitations
-
-- The Express server currently stores incidents in memory. Data is lost when the server restarts. Add MySQL or SQLite for persistent records.
-- “Test alert” is a manual demo. Real alerts require your Arduino/ESP32 firmware to send an authenticated HTTP request to the API.
-- The camera URL input is a browser preview, not a video proxy. Some ESP32 camera endpoints may not render in an `<img>` element. Use the correct stream endpoint and configure CORS/proxying if required.
-- Face recognition requires the ESP32 capture endpoint and CompreFace service to be reachable from the Node.js server.
-- This starter does not include login, user roles, HTTPS, or API authentication. Add these before using it with real barangay/security data.
-- `localhost` is only the current computer. For phone/LAN access, use the computer's LAN IP and allow Node.js through the firewall. Do not expose this security dashboard publicly without authentication and HTTPS.
+Face recognition remains optional; configure its values in `.env`. The example uses a 0.7 face-detection confidence threshold and a 0.85 identity similarity threshold to reduce false detections and false matches. Higher thresholds can miss faces, especially in dim or low-resolution footage. For better results, use a clear, well-lit, front-facing camera image and enroll each person with several varied, good-quality images in CompreFace. Restart the app after changing `.env`. Keep API credentials private and do not expose this dashboard publicly without HTTPS.

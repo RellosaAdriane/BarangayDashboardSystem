@@ -20,11 +20,6 @@ function setDate() {
   $('todayText').textContent = now.toLocaleDateString(undefined, {weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' · Security overview';
 }
 function updateStats() {
-  $('totalCams').textContent = '1';
-  $('onlineCams').textContent = connected ? '1' : '0';
-  $('activeCount').textContent = incidents.filter(i => (i.status || 'Active') === 'Active').length;
-  const today = new Date().toDateString();
-  $('todayCount').textContent = incidents.filter(i => new Date(i.date || i.createdAt).toDateString() === today).length;
   $('deviceStatus').textContent = connected ? 'Connected' : 'Offline';
   $('deviceStatus').className = connected ? 'online' : 'offline';
   $('feedBadge').textContent = connected ? 'CONNECTED' : 'NOT CONNECTED';
@@ -40,13 +35,17 @@ function renderIncidents() {
     rows.innerHTML = incidents.map(i => {
       const date = formatDate(i.date || i.createdAt);
       const status = i.status || 'Active';
-      return `<tr><td>${escapeHtml(i.id || 'INC')}</td><td>${escapeHtml(i.type || i.eventType || 'Incident')}</td><td>${escapeHtml(i.camera || 'ESP32-CAM 01')}</td><td>${escapeHtml(date)}</td><td><span class="tag ${status === 'Active' ? 'red' : 'green'}">${escapeHtml(status)}</span></td></tr>`;
+      return `<tr><td>${escapeHtml(i.id || 'INC')}</td><td>${escapeHtml(i.type || i.eventType || 'Incident')}</td><td>${escapeHtml(i.camera || 'ESP32-CAM 01')}</td><td>${escapeHtml(date)}</td><td><span class="tag ${status === 'Active' ? 'red' : 'green'}">${escapeHtml(status)}</span> ${window.currentRole === 'admin' ? `<button class="btn" data-archive-incident="${escapeHtml(i.dbId || i.id)}">Archive</button>` : ''}</td></tr>`;
     }).join('');
     list.innerHTML = incidents.slice(0, 6).map(i => {
       const status = i.status || 'Active';
       return `<div class="alert"><div class="alert-dot ${status === 'Resolved' ? 'safe' : ''}"></div><div class="alert-text"><strong>${escapeHtml(i.type || i.eventType || 'Incident')}</strong><p>${escapeHtml(i.note || i.details || 'Camera: ESP32-CAM 01')}</p><span class="tag ${status === 'Active' ? 'red' : 'green'}">${escapeHtml(status)}</span></div><span class="alert-time">${escapeHtml(formatDate(i.date || i.createdAt))}</span></div>`;
     }).join('');
   }
+  rows.querySelectorAll('[data-archive-incident]').forEach((button) => button.addEventListener('click', async () => {
+    try { const response = await fetch(`${API_BASE}/incidents/${button.dataset.archiveIncident}/archive`, { method: 'PATCH' }); if (!response.ok) throw new Error('Could not archive incident'); await loadIncidents(); }
+    catch (error) { $('cameraStatus').textContent = error.message; }
+  }));
   updateStats();
 }
 async function loadIncidents() {
@@ -57,12 +56,12 @@ async function loadIncidents() {
     incidents = Array.isArray(data) ? data : (data.incidents || []);
     renderIncidents();
   } catch (error) {
-    // Keep the front-end usable for demonstration while backend is unavailable.
+    incidents = [];
     renderIncidents();
   }
 }
 async function createIncident(type, note) {
-  const incident = { type, note, camera: 'ESP32-CAM 01', status: 'Active', date: new Date().toISOString() };
+  const incident = { type, note, cameraId: window.activeCameraId || null, status: 'Active', date: new Date().toISOString() };
   try {
     const response = await fetch(`${API_BASE}/incidents`, {
       method: 'POST',
@@ -73,8 +72,8 @@ async function createIncident(type, note) {
     const saved = await response.json();
     incidents.unshift(saved.incident || saved);
   } catch (error) {
-    incidents.unshift({ ...incident, id: `LOCAL-${Date.now().toString().slice(-6)}` });
-    $('cameraStatus').textContent = 'Demo mode: backend unavailable; incident stored in page memory only.';
+    $('cameraStatus').textContent = `Unable to save report: ${error.message}`;
+    return;
   }
   renderIncidents();
 }
@@ -102,6 +101,7 @@ function connectCamera() {
     if (cameraLoadTimer) clearInterval(cameraLoadTimer);
     cameraLoadTimer = null;
     connected = true;
+    if (window.activeCameraId) fetch(`${API_BASE}/cameras/${window.activeCameraId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'online' }) }).then(() => window.dispatchEvent(new Event('camera:status')));
     $('cameraPlaceholder').style.display = 'none';
     $('liveTag').style.display = 'block';
     $('cameraStatus').textContent = 'Status: Feed loaded';
@@ -116,6 +116,7 @@ function connectCamera() {
     if (cameraLoadTimer) clearInterval(cameraLoadTimer);
     cameraLoadTimer = null;
     connected = false;
+    if (window.activeCameraId) fetch(`${API_BASE}/cameras/${window.activeCameraId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'offline' }) }).then(() => window.dispatchEvent(new Event('camera:status')));
     img.style.display = 'none';
     $('cameraPlaceholder').style.display = 'flex';
     $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>Unable to load stream</strong><span>Check the camera IP, stream path, network,<br>and whether the endpoint works as an image stream.</span>';
@@ -137,9 +138,17 @@ function connectCamera() {
 }
 
 $('connectBtn').addEventListener('click', connectCamera);
-$('saveUrlBtn').addEventListener('click', () => {
+window.addEventListener('camera:url-updated', connectCamera);
+$('saveUrlBtn').addEventListener('click', async () => {
   const url = $('cameraUrl').value.trim();
-  if (url) sessionStorage.setItem('barangayCameraUrl', url);
+  if (!url) return;
+  try {
+    const response = await fetch(`${API_BASE}/camera-stream`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ streamUrl: url, cameraId: window.activeCameraId || null }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not save camera URL');
+    window.activeCameraId = Number(result.id);
+    $('cameraUrl').value = result.streamUrl;
+  } catch (error) { $('cameraStatus').textContent = `Status: ${error.message}`; return; }
   connectCamera();
 });
 $('disconnectBtn').addEventListener('click', () => {
@@ -147,6 +156,7 @@ $('disconnectBtn').addEventListener('click', () => {
   if (cameraLoadTimer) clearInterval(cameraLoadTimer);
   cameraLoadTimer = null;
   connected = false;
+  if (window.activeCameraId) fetch(`${API_BASE}/cameras/${window.activeCameraId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'offline' }) });
   $('cameraImg').removeAttribute('src');
   $('cameraImg').style.display = 'none';
   $('cameraPlaceholder').style.display = 'flex';
@@ -164,6 +174,4 @@ $('reportBtn').addEventListener('click', () => {
 $('reloadIncidentsBtn').addEventListener('click', loadIncidents);
 $('refreshBtn').addEventListener('click', () => { setDate(); loadIncidents(); });
 setDate();
-const savedUrl = sessionStorage.getItem('barangayCameraUrl');
-if (savedUrl) $('cameraUrl').value = savedUrl;
 loadIncidents();
