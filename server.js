@@ -61,8 +61,8 @@ app.get('/api/auth/status', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   const { firstName, middleName = '', lastName, gender, dateOfBirth, username, password, requestedRole } = req.body || {};
-  if (!validProfile({ firstName, middleName, lastName, gender, dateOfBirth }) || !validUsername(username) || !password || String(password).length < 10 || String(password).length > 128 || !['tanod', 'captain'].includes(requestedRole)) {
-    return res.status(400).json({ error: 'Enter your name, a valid username, a password of 10–128 characters, and a requested role.' });
+  if (!validProfile({ firstName, middleName, lastName, gender, dateOfBirth }) || !validUsername(username) || typeof password !== 'string' || password.length < 8 || password.length > 16 || !['tanod', 'captain'].includes(requestedRole)) {
+    return res.status(400).json({ error: 'Enter your name, a valid username, a password of 8–16 characters, and a requested role.' });
   }
   try {
     const hash = await bcrypt.hash(String(password), 12);
@@ -77,7 +77,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/setup', async (req, res) => {
   const { firstName, middleName = '', lastName, gender, dateOfBirth, username, password } = req.body || {};
-  if (!validProfile({ firstName, middleName, lastName, gender, dateOfBirth }) || !validUsername(username) || !password || String(password).length < 10 || String(password).length > 128) return res.status(400).json({ error: 'Enter your profile details, a valid username, and a password of 10–128 characters.' });
+  if (!validProfile({ firstName, middleName, lastName, gender, dateOfBirth }) || !validUsername(username) || typeof password !== 'string' || password.length < 8 || password.length > 16) return res.status(400).json({ error: 'Enter your profile details, a valid username, and a password of 8–16 characters.' });
   const conn = await pool.getConnection();
   let setupLock = false;
   try {
@@ -211,7 +211,7 @@ app.post('/api/users/:id/decision', allow('admin'), async (req, res) => {
   } catch { res.status(500).json({ error: 'Unable to update the account request.' }); }
 });
 app.get('/api/tanods', allow('captain', 'admin'), async (_req, res) => { try { const [rows] = await pool.query("SELECT id, full_name AS fullName FROM users WHERE role = 'tanod' AND is_active = 1 ORDER BY full_name"); res.json(rows); } catch { res.status(500).json({ error: 'Unable to load Tanod accounts.' }); } });
-app.post('/api/users', allow('admin'), async (req, res) => { const { fullName, username, password, role } = req.body || {}; if (!fullName || !validUsername(username) || !password || String(password).length < 10 || String(password).length > 128 || !roles.includes(role)) return res.status(400).json({ error: 'Provide a name, valid username, role, and password of 10–128 characters.' }); try { const hash = await bcrypt.hash(String(password), 12); const [r] = await pool.execute('INSERT INTO users (full_name, username, password_hash, role) VALUES (?, ?, ?, ?)', [fullName.trim().slice(0, 120), username.trim().toLowerCase().slice(0, 60), hash, role]); await audit(req.session.user.id, 'created', 'user', r.insertId, { role }, req.ip); res.status(201).json({ id: r.insertId, fullName, username, role, isActive: 1 }); } catch (error) { res.status(error.code === 'ER_DUP_ENTRY' ? 409 : 500).json({ error: error.code === 'ER_DUP_ENTRY' ? 'That username is already in use.' : 'Unable to create user.' }); } });
+app.post('/api/users', allow('admin'), async (req, res) => { const { fullName, username, password, role } = req.body || {}; if (!fullName || !validUsername(username) || typeof password !== 'string' || password.length < 8 || password.length > 16 || !roles.includes(role)) return res.status(400).json({ error: 'Provide a name, valid username, role, and password of 8–16 characters.' }); try { const hash = await bcrypt.hash(password, 12); const [r] = await pool.execute('INSERT INTO users (full_name, username, password_hash, role) VALUES (?, ?, ?, ?)', [fullName.trim().slice(0, 120), username.trim().toLowerCase().slice(0, 60), hash, role]); await audit(req.session.user.id, 'created', 'user', r.insertId, { role }, req.ip); res.status(201).json({ id: r.insertId, fullName, username, role, isActive: 1 }); } catch (error) { res.status(error.code === 'ER_DUP_ENTRY' ? 409 : 500).json({ error: error.code === 'ER_DUP_ENTRY' ? 'That username is already in use.' : 'Unable to create user.' }); } });
 app.patch('/api/users/:id/role', allow('admin'), async (req, res) => { const { role } = req.body || {}; if (!roles.includes(role)) return res.status(400).json({ error: 'Invalid role.' }); if (Number(req.params.id) === req.session.user.id && role !== 'admin') return res.status(400).json({ error: 'You cannot remove your own admin role.' }); try { await pool.execute('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]); await audit(req.session.user.id, 'role_changed', 'user', req.params.id, { role }, req.ip); res.json({ ok: true }); } catch { res.status(500).json({ error: 'Unable to update role.' }); } });
 
 app.get('/api/faces/recognize', requireAuth, async (_req, res) => {

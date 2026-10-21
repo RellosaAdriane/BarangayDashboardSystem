@@ -38,7 +38,7 @@ npm install
 npm start
 ```
 
-4. Open `http://localhost:3000`. The public landing page has **Log in** and **Create account** actions. If there is no approved admin yet, the first account flow creates the administrator (password must be at least 10 characters).
+4. Open `http://localhost:3000`. The public landing page has **Log in** and **Create account** actions. If there is no approved admin yet, the first account flow creates the administrator (password must be 8–16 characters).
 5. Other users can request Tanod or Barangay Captain access from **Create account**. Their accounts stay pending and cannot log in until an admin approves them. Admins can approve or decline requests from the **Account requests** panel.
 6. Use the Admin panel to add cameras and create accounts directly when needed.
 

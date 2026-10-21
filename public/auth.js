@@ -12,6 +12,43 @@ async function api(path, options = {}) {
   return data;
 }
 function showAuthError(message) { byId('authError').textContent = message; }
+function clearRequiredError(input) {
+  input.removeAttribute('aria-invalid');
+  input.requiredErrorElement?.remove();
+  delete input.requiredErrorElement;
+}
+function showFieldError(input, text) {
+  clearRequiredError(input);
+  input.setAttribute('aria-invalid', 'true');
+  const message = document.createElement('span');
+  message.className = 'required-error';
+  message.textContent = text;
+  const control = input.closest('.password-control') || input;
+  control.insertAdjacentElement('afterend', message);
+  input.requiredErrorElement = message;
+}
+function validateRequiredFields(form) {
+  const required = [...form.querySelectorAll(':required')]
+    .filter((input) => !input.closest('[hidden]'));
+  let firstInvalid = null;
+
+  required.forEach((input) => {
+    clearRequiredError(input);
+    if (input.value.trim()) return;
+
+    showFieldError(input, 'Please fill out this field.');
+    firstInvalid ||= input;
+  });
+
+  firstInvalid?.focus();
+  return !firstInvalid;
+}
+document.addEventListener('input', (event) => {
+  if (event.target.matches('#authForm :required') && event.target.value.trim()) clearRequiredError(event.target);
+});
+document.addEventListener('change', (event) => {
+  if (event.target.matches('#authForm :required') && event.target.value.trim()) clearRequiredError(event.target);
+});
 async function setRoleUI(user) {
   currentUser = user;
   window.currentRole = user.role;
@@ -39,13 +76,16 @@ function openAuth(mode = 'login') {
   authMode = mode;
   byId('authCover').hidden = false;
   byId('authError').textContent = '';
+  byId('authForm').querySelectorAll('[aria-invalid="true"]').forEach(clearRequiredError);
   byId('setupFields').hidden = mode !== 'setup';
   byId('registerFields').hidden = mode !== 'register';
   byId('confirmPasswordField').hidden = mode !== 'register';
   byId('confirmPassword').required = mode === 'register';
+  byId('confirmPassword').maxLength = 16;
   byId('confirmPassword').value = '';
   byId('setupConfirmPasswordField').hidden = mode !== 'setup';
   byId('setupConfirmPassword').required = mode === 'setup';
+  byId('setupConfirmPassword').maxLength = 16;
   byId('setupConfirmPassword').value = '';
   document.querySelectorAll('[data-toggle-password]').forEach((button) => {
     const input = byId(button.dataset.togglePassword);
@@ -57,19 +97,21 @@ function openAuth(mode = 'login') {
   byId('authSubmit').hidden = false;
   byId('authSwitch').hidden = mode === 'setup';
   byId('loginPassword').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  byId('loginPassword').minLength = ['setup', 'register'].includes(mode) ? 8 : -1;
+  byId('loginPassword').maxLength = ['setup', 'register'].includes(mode) ? 16 : 128;
   byId('loginUsername').required = true;
   byId('loginPassword').required = true;
   if (mode === 'setup') {
     byId('authHeading').textContent = 'Set up the first admin account';
     byId('authMessage').textContent = 'This one-time setup creates the administrator who can review account requests.';
     byId('usernameLabel').textContent = 'Admin username';
-    byId('passwordLabel').textContent = 'Admin password (10+ characters)';
+    byId('passwordLabel').textContent = 'Admin password (8–16 characters)';
     byId('authSubmit').textContent = 'Create admin account';
   } else if (mode === 'register') {
     byId('authHeading').textContent = 'Request an account';
     byId('authMessage').textContent = 'An administrator will review your details and approve or decline access.';
     byId('usernameLabel').textContent = 'Choose a username';
-    byId('passwordLabel').textContent = 'Choose a password (10+ characters)';
+    byId('passwordLabel').textContent = 'Choose a password (8–16 characters)';
     byId('authSubmit').textContent = 'Send for admin review';
   } else {
     byId('authHeading').textContent = 'Log in to BarangayPOB-3A';
@@ -96,6 +138,15 @@ async function checkAuth() {
 }
 byId('authForm').addEventListener('submit', async (event) => {
   event.preventDefault(); showAuthError('');
+  if (!validateRequiredFields(event.currentTarget)) return;
+  if (['setup', 'register'].includes(authMode)) {
+    const password = byId('loginPassword');
+    if (password.value.length < 8 || password.value.length > 16) {
+      showFieldError(password, 'Password must be 8 to 16 characters.');
+      password.focus();
+      return;
+    }
+  }
   const confirmation = authMode === 'setup' ? byId('setupConfirmPassword') : byId('confirmPassword');
   if (['setup', 'register'].includes(authMode) && byId('loginPassword').value !== confirmation.value) {
     showAuthError('Passwords do not match.');
