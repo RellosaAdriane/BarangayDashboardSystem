@@ -9,8 +9,9 @@ export default {
   navigation: [
     ['+', 'Report incident', '#quickIncidentPanel'],
     ['▣', 'Live cameras', '#camera'],
+    ['\u25b6', 'Past footage', '#recordedFootage'],
     ['▤', 'Incidents', '#incidents'],
-    ['◷', 'Announcements', '#announcementsPanel'],
+    ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'Team tasks', '#tasksPanel']
   ]
 };

@@ -43,6 +43,23 @@ CREATE TABLE IF NOT EXISTS cameras (
   INDEX idx_cameras_visible (is_archived, is_enabled)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS camera_recordings (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  camera_id BIGINT UNSIGNED NOT NULL,
+  file_name VARCHAR(100) NOT NULL,
+  started_at DATETIME NOT NULL,
+  ended_at DATETIME NOT NULL,
+  duration_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+  file_size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  archived_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_recordings_camera FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_recordings_camera_file (camera_id, file_name),
+  INDEX idx_recordings_camera_time (camera_id, started_at),
+  INDEX idx_recordings_time (started_at, ended_at),
+  INDEX idx_recordings_archive (archived_at)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS incidents (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   reference_no VARCHAR(24) NOT NULL UNIQUE,
@@ -72,6 +89,23 @@ CREATE TABLE IF NOT EXISTS announcements (
   INDEX idx_announcements_dashboard (is_published, published_at)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(180) NOT NULL,
+  details TEXT NULL,
+  location VARCHAR(200) NULL,
+  starts_at DATETIME NOT NULL,
+  ends_at DATETIME NOT NULL,
+  created_by BIGINT UNSIGNED NULL,
+  updated_by BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_calendar_events_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_calendar_events_updater FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_calendar_events_dates (starts_at, ends_at),
+  INDEX idx_calendar_events_creator (created_by)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS tasks (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(180) NOT NULL,
@@ -80,11 +114,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   assigned_to BIGINT UNSIGNED NULL,
   assigned_by BIGINT UNSIGNED NULL,
   due_at DATETIME NULL,
+  duty_starts_at DATETIME NULL,
+  duty_ends_at DATETIME NULL,
   completed_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_tasks_assignee FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_tasks_assigner FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL,
-  INDEX idx_tasks_assignee (assigned_to, status, due_at)
+  INDEX idx_tasks_assignee (assigned_to, status, due_at),
+  INDEX idx_tasks_duty (duty_starts_at, duty_ends_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS audit_logs (

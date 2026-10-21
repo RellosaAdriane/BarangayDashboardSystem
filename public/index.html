@@ -29,7 +29,7 @@
   <main>
     <header class="topbar">
       <div><h2 id="dashboardTitle">Barangay Monitoring Dashboard</h2><p id="dashboardSubtitle">Security overview and incident monitoring</p></div>
-      <div class="top-actions"><span class="status-pill" id="roleLabel">Dashboard</span><span id="userName"></span><div class="user-menu"><button class="avatar user-menu-trigger" id="userAvatar" type="button" aria-label="Open user menu" aria-haspopup="true" aria-expanded="false">AR</button><div class="user-menu-dropdown" id="userMenu" role="menu" hidden><button type="button" id="openSettingsBtn" role="menuitem">Settings</button><button type="button" id="logoutBtn" role="menuitem">Log out</button></div></div></div>
+      <div class="top-actions"><span class="status-pill" id="roleLabel">Dashboard</span><span id="userName"></span><div class="user-menu"><button class="avatar user-menu-trigger" id="userAvatar" type="button" aria-label="Open user menu" aria-haspopup="true" aria-expanded="false">AR</button><div class="user-menu-dropdown" id="userMenu" role="menu" hidden><button type="button" id="openSettingsBtn" role="menuitem">Settings</button><button type="button" id="openRecordingArchiveBtn" role="menuitem">Archived</button><button type="button" id="logoutBtn" role="menuitem">Log out</button></div></div></div>
     </header>
     <div class="content" id="overview">
       <div class="section-head"><div><h3>Overview</h3><div class="sub" id="todayText">Today's security status</div></div><button class="btn" id="refreshBtn">â†» Refresh view</button></div>
@@ -55,6 +55,30 @@
               <div class="hint">Set the shared stream URL. Saving it updates the camera feed for other signed-in users.</div></div>
             </div>
           </section>
+          <section class="panel" id="recordedFootage">
+            <div class="panel-head"><div><h3>Recorded Footage</h3><div class="sub">Search and play saved camera clips</div></div><span class="tag amber" id="recorderStatusBadge">CHECKING</span></div>
+            <div class="panel-body">
+              <div class="recording-playback-layout">
+                <div class="recording-playback-main">
+                  <div class="recording-preview" id="recordingPreview"><div class="recording-preview-empty">Choose a clip on the timeline to play it</div><video id="recordingPlayer" controls playsinline preload="metadata" hidden></video></div>
+                  <div class="recording-player-head"><p class="sub" id="recordingNowPlaying">No clip selected</p><button class="btn" id="closeRecordingPlayerBtn" type="button" aria-label="Stop clip playback">Stop</button></div>
+                  <div class="recording-timeline-head"><strong>Playback timeline</strong><span id="recordingTimelineDate"></span></div>
+                  <div class="recording-timeline" id="recordingTimeline"><div class="empty">Select a date to load recorded clips.</div></div>
+                </div>
+                <aside class="recording-playback-sidebar">
+                  <label class="recording-date-label" for="recordingDate">Recording date</label>
+                  <input class="form-control" id="recordingDate" type="date">
+                  <div class="recording-channels-head"><strong>Channels</strong><span id="recordingChannelCount">0 cameras</span></div>
+                  <div class="recording-channels" id="recordingChannels"><div class="empty">Loading cameras…</div></div>
+                </aside>
+              </div>
+              <select class="form-control" id="recordingCameraFilter" aria-label="Filter by camera" hidden><option value="">All cameras</option></select>
+              <input id="recordingFrom" type="datetime-local" hidden><input id="recordingTo" type="datetime-local" hidden>
+              <button id="searchRecordingsBtn" type="button" hidden>Search clips</button>
+              <p class="sub" id="recordingStatus" role="status">Recordings are saved in five-minute clips while a camera is enabled.</p>
+              <div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody id="recordingRows"><tr><td colspan="6" class="empty">Loading recordings…</td></tr></tbody></table></div>
+            </div>
+          </section>
           <section class="panel" id="faceDetection">
             <div class="panel-head">
               <div><h3>Face Detection</h3><div class="sub">Automatic CompreFace recognition</div></div>
@@ -64,6 +88,23 @@
               <p id="detectionResult">Waiting for camera...</p>
               <p class="sub" id="detectionDetails">Connect the camera to start face tracking.</p>
               <button class="btn primary" id="detectFaceBtn" type="button">Check Camera</button>
+            </div>
+          </section>
+          <section class="panel" id="eventsPanel">
+            <div class="panel-head"><div><h3>Events calendar</h3><div class="sub">Shared barangay events</div></div><button class="btn primary" id="createCalendarEventBtn" type="button" hidden>Create event</button></div>
+            <div class="panel-body">
+              <div class="events-calendar-head"><button class="btn" id="previousCalendarMonthBtn" type="button" aria-label="Previous month">‹</button><h4 id="calendarMonthTitle"></h4><button class="btn" id="nextCalendarMonthBtn" type="button" aria-label="Next month">›</button></div>
+              <div class="events-calendar-weekdays" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+              <div class="events-calendar-grid" id="eventsCalendarGrid" role="grid"></div>
+              <div class="calendar-day-events"><h4 id="calendarSelectedDate"></h4><div id="calendarDayEvents" class="alert-list"><div class="empty">Loading events…</div></div></div>
+              <form id="calendarEventForm" class="calendar-event-form" hidden>
+                <h4 id="calendarFormTitle">Create event</h4>
+                <label class="sub" for="calendarEventName">Event name</label><input id="calendarEventName" class="form-control" maxlength="180" required>
+                <div class="calendar-event-dates"><label class="sub" for="calendarEventStart">Starts<input id="calendarEventStart" class="form-control" type="datetime-local" required></label><label class="sub" for="calendarEventEnd">Ends<input id="calendarEventEnd" class="form-control" type="datetime-local" required></label></div>
+                <label class="sub" for="calendarEventLocation">Location</label><input id="calendarEventLocation" class="form-control" maxlength="200">
+                <label class="sub" for="calendarEventDescription">Details</label><textarea id="calendarEventDescription" class="form-control" rows="3" maxlength="5000"></textarea>
+                <div class="calendar-event-actions"><button class="btn primary" id="saveCalendarEventBtn" type="submit">Save event</button><button class="btn" id="cancelCalendarEventBtn" type="button">Cancel</button><span id="calendarEventFormStatus" role="status"></span></div>
+              </form>
             </div>
           </section>
           <section class="panel" id="incidents">
@@ -81,7 +122,20 @@
             <div class="panel-head"><div><h3>Camera Status</h3><div class="sub">Configured monitoring devices</div></div></div>
             <div class="table-wrap"><table><thead><tr><th>Device</th><th>Status</th></tr></thead><tbody><tr><td>ESP32-CAM 01</td><td id="deviceStatus" class="offline">Offline</td></tr></tbody></table></div>
           </section>
-          <section class="panel" id="tasksPanel"><div class="panel-head"><div><h3>Tasks</h3><div class="sub">Assigned barangay duties</div></div></div><div class="panel-body"><div id="tasksList" class="alert-list"><div class="empty">Loading tasksâ€¦</div></div><div id="taskForm" hidden><label class="sub" for="taskTitle">Task</label><input id="taskTitle" class="form-control"><label class="sub" for="taskDetails">Details</label><textarea id="taskDetails" class="form-control" rows="2"></textarea><label class="sub" for="taskAssignee">Assign to Tanod</label><select id="taskAssignee" class="form-control"></select><button class="btn primary" id="assignTaskBtn">Assign task</button></div></div></section>
+          <section class="panel" id="tasksPanel">
+            <div class="panel-head"><div><h3>Team tasks</h3><div class="sub">Assigned duties and shift hours</div></div></div>
+            <div class="panel-body">
+              <div id="tasksList" class="alert-list"><div class="empty">Loading tasks...</div></div>
+              <form id="taskForm" class="task-assignment-form" hidden>
+                <h4>Assign a duty</h4>
+                <label class="sub" for="taskTitle">Task name</label><input id="taskTitle" class="form-control" maxlength="180" required>
+                <label class="sub" for="taskDetails">Work description</label><textarea id="taskDetails" class="form-control" rows="3" maxlength="5000" required></textarea>
+                <div class="task-duty-times"><label class="sub" for="taskDutyStart">Duty starts<input id="taskDutyStart" class="form-control" type="datetime-local" required></label><label class="sub" for="taskDutyEnd">Duty ends<input id="taskDutyEnd" class="form-control" type="datetime-local" required></label></div>
+                <label class="sub" for="taskAssignee">Assign to Tanod</label><select id="taskAssignee" class="form-control" required></select>
+                <div class="task-assignment-actions"><button class="btn primary" id="assignTaskBtn" type="submit">Assign task</button><span id="taskFormStatus" role="status"></span></div>
+              </form>
+            </div>
+          </section>
           <section class="panel" id="cameraAdminPanel" hidden><div class="panel-head"><div><h3>Camera setup</h3><div class="sub">Admin only</div></div></div><div class="panel-body"><label class="sub" for="newCameraName">Camera name</label><input id="newCameraName" class="form-control"><label class="sub" for="newCameraUrl">Stream URL</label><input id="newCameraUrl" class="form-control" type="url" placeholder="http://192.168.1.10:81/stream"><label class="sub" for="newCameraLocation">Location</label><input id="newCameraLocation" class="form-control"><button class="btn primary" id="addCameraBtn">Add camera</button><div id="cameraList" class="alert-list"></div></div></section>
           <section class="panel" id="userAdminPanel" hidden><div class="panel-head"><div><h3>Account requests</h3><div class="sub">Review registrations and manage roles</div></div></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Requested role</th><th>Requested</th><th>Decision</th></tr></thead><tbody id="pendingUserRows"></tbody></table></div><h4>Approved accounts</h4><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th></tr></thead><tbody id="userRows"></tbody></table></div></div></section>
           <section class="panel" id="cameraStatusPanel">
@@ -99,12 +153,13 @@
           </section>
         </div>
       </div>
-      <div class="footer">BarangayPOB-3A Dashboard Â· VS Code project Â· Secure the API before deployment</div>
+      <div class="footer">BarangayPOB-3A Dashboard</div>
     </div>
   </main>
 </div>
 <div class="auth-cover" id="authCover" hidden><form class="auth-card" id="authForm" novalidate><button class="auth-close" id="closeAuthBtn" type="button" aria-label="Close">×</button><img class="brand-icon" src="/images/logo.jpg" alt="Poblacion III-A seal"><h2 id="authHeading">Sign in to BarangayPOB-3A</h2><p id="authMessage">Authorized barangay personnel only.</p><div id="setupFields" hidden><label for="setupFirstName">First name</label><input id="setupFirstName" autocomplete="given-name"><label for="setupMiddleName">Middle name (optional)</label><input id="setupMiddleName" autocomplete="additional-name"><label for="setupLastName">Last name</label><input id="setupLastName" autocomplete="family-name"><label for="setupGender">Gender</label><select id="setupGender"><option value="female">Female</option><option value="male">Male</option></select><label for="setupDob">Date of birth</label><input id="setupDob" type="date"></div><div id="registerFields" hidden><label for="registerFirstName">First name</label><input id="registerFirstName" autocomplete="given-name"><label for="registerMiddleName">Middle name (optional)</label><input id="registerMiddleName" autocomplete="additional-name"><label for="registerLastName">Last name</label><input id="registerLastName" autocomplete="family-name"><label for="registerGender">Gender</label><select id="registerGender"><option value="female">Female</option><option value="male">Male</option></select><label for="registerDob">Date of birth</label><input id="registerDob" type="date"><label for="registerRole">Request role</label><select id="registerRole"><option value="tanod">Tanod</option><option value="captain">Barangay Captain</option></select></div><div id="credentialFields"><label id="usernameLabel" for="loginUsername">Username</label><input id="loginUsername" autocomplete="username" required><label id="passwordLabel" for="loginPassword">Password</label><div class="password-control"><input id="loginPassword" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" data-toggle-password="loginPassword" aria-label="Show password">Show</button></div><div id="confirmPasswordField" hidden><label for="confirmPassword">Confirm password</label><div class="password-control"><input id="confirmPassword" type="password" autocomplete="new-password"><button type="button" class="password-toggle" data-toggle-password="confirmPassword" aria-label="Show confirm password">Show</button></div></div><div id="setupConfirmPasswordField" hidden><label for="setupConfirmPassword">Confirm password</label><div class="password-control"><input id="setupConfirmPassword" type="password" autocomplete="new-password"><button type="button" class="password-toggle" data-toggle-password="setupConfirmPassword" aria-label="Show confirm password">Show</button></div></div></div><button class="btn primary full" id="authSubmit" type="submit">Log in</button><div id="authSwitch" class="auth-switch"></div><div id="authError" role="alert"></div></form></div>
 <div class="auth-cover settings-cover" id="settingsCover" hidden><section class="auth-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><button class="auth-close" id="closeSettingsBtn" type="button" aria-label="Close settings">&times;</button><h2 id="settingsTitle">Account settings</h2><p>Signed-in account details</p><dl class="settings-details"><dt>Name</dt><dd id="settingsName"></dd><dt>Username</dt><dd id="settingsUsername"></dd><dt>Role</dt><dd id="settingsRole"></dd></dl></section></div>
+<div class="auth-cover recording-archive-cover" id="recordingArchiveWrap" hidden><section class="auth-card recording-archive-card" role="dialog" aria-modal="true" aria-labelledby="recordingArchiveTitle"><button class="auth-close" id="closeRecordingArchiveBtn" type="button" aria-label="Close archived recordings">&times;</button><h2 id="recordingArchiveTitle">Archived recordings</h2><p>Archived clips can be restored for one year, then they are permanently deleted.</p><div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Archived</th><th>Size</th><th></th></tr></thead><tbody id="recordingArchiveRows"><tr><td colspan="6" class="empty">Open the archive to load clips.</td></tr></tbody></table></div></section></div>
 <script src="/script.js"></script>
 <script src="/auth.js"></script>
 <script src="/detection.js"></script>

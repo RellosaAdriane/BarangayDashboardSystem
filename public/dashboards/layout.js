@@ -18,6 +18,7 @@ export function applyDashboardLayout(user, dashboard) {
   byId('userAdminPanel').hidden = !dashboard.isAdmin;
   byId('announcementForm').hidden = !dashboard.canPublish;
   byId('taskForm').hidden = !dashboard.canAssignTasks;
+  byId('createCalendarEventBtn').hidden = user.role !== 'captain';
   const nav = byId('mainNav');
   nav.innerHTML = dashboard.navigation
     .map(([icon, label, href], index) => `<a class="${index === 0 ? 'active' : ''}" href="${href}"><span class="ico">${icon}</span>${label}</a>`)

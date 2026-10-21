@@ -8,9 +8,10 @@ export default {
   isAdmin: false,
   navigation: [
     ['▣', 'Live cameras', '#camera'],
+    ['\u25b6', 'Past footage', '#recordedFootage'],
     ['⚠', 'Alerts', '#alerts'],
     ['▤', 'Incidents', '#incidents'],
-    ['◷', 'Announcements', '#announcementsPanel'],
+    ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'My tasks', '#tasksPanel']
   ]
 };

@@ -4,6 +4,10 @@ let setupMode = false;
 let authMode = 'login';
 let cameraFeeds = [];
 let sharedCameraRefreshTimer = null;
+const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let calendarSelectedDate = localDateKey(new Date());
+let calendarEvents = [];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
@@ -66,7 +70,7 @@ async function setRoleUI(user) {
   ]);
   applyDashboardLayout(user, dashboard);
   const canAssignTasks = dashboard.canAssignTasks;
-  loadIncidents(); loadAnnouncements(); loadTasks(); loadStats(); loadCameras();
+  loadIncidents(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
   if (sharedCameraRefreshTimer) clearInterval(sharedCameraRefreshTimer);
   if (!dashboard.isAdmin) sharedCameraRefreshTimer = setInterval(refreshSharedCameraUrl, 10000);
   if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); } else if (canAssignTasks) loadTanods();
@@ -227,6 +231,10 @@ async function loadStats() {
 async function loadCameras() {
   try {
     cameraFeeds = await api('/api/cameras');
+    const recordingCameraFilter = byId('recordingCameraFilter');
+    if (recordingCameraFilter) recordingCameraFilter.innerHTML = '<option value="">All cameras</option>' + cameraFeeds.map((camera) => `<option value="${Number(camera.id)}">${escapeHtml(camera.name)}</option>`).join('');
+    window.loadRecordedFootage?.();
+    window.refreshRecorderStatus?.();
     const select = byId('cameraList');
     if (select) select.innerHTML = cameraFeeds.length ? cameraFeeds.map((cam) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(cam.name)}</strong><p>${escapeHtml(cam.location || 'No location')} · ${escapeHtml(cam.status)}</p></div><button class="btn" data-camera-id="${cam.id}" data-camera-url="${escapeHtml(cam.streamUrl)}">View</button></div>`).join('') : '<div class="empty">No cameras configured.</div>';
     select?.querySelectorAll('[data-camera-id]').forEach((button) => button.addEventListener('click', () => { window.activeCameraId = Number(button.dataset.cameraId); byId('cameraUrl').value = button.dataset.cameraUrl; connectCamera(); }));
@@ -253,10 +261,84 @@ async function loadAnnouncements() {
   try { const items = await api('/api/announcements'); byId('announcementsList').innerHTML = items.length ? items.map((item) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body)}</p><span class="sub">${escapeHtml(item.author || 'Barangay office')} · ${escapeHtml(formatDate(item.publishedAt))}</span></div>${currentUser.role === 'admin' ? `<button class="btn" data-hide-announcement="${item.id}">Hide</button>` : ''}</div>`).join('') : '<div class="empty">No announcements posted.</div>'; byId('announcementsList').querySelectorAll('[data-hide-announcement]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/announcements/${button.dataset.hideAnnouncement}/archive`, { method: 'PATCH' }); loadAnnouncements(); })); }
   catch (error) { byId('announcementsList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
 }
+function renderCalendarEvents() {
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
+  const monthName = calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  byId('calendarMonthTitle').textContent = monthName;
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayKey = localDateKey(new Date());
+  const startDate = new Date(year, month, 1 - firstWeekday);
+  byId('eventsCalendarGrid').innerHTML = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + index);
+    const key = localDateKey(date);
+    const count = calendarEvents.filter((event) => String(event.startsAt).slice(0, 10) === key).length;
+    const classes = ['calendar-day', date.getMonth() !== month ? 'outside-month' : '', key === calendarSelectedDate ? 'selected' : '', key === todayKey ? 'today' : ''].filter(Boolean).join(' ');
+    return `<button class="${classes}" type="button" role="gridcell" data-calendar-date="${key}" aria-label="${escapeHtml(date.toLocaleDateString(undefined, { dateStyle: 'full' }))}${count ? `, ${count} event${count === 1 ? '' : 's'}` : ''}"><span>${date.getDate()}</span>${count ? `<i class="calendar-day-marker" aria-label="${count} events"></i>` : ''}</button>`;
+  }).join('');
+  byId('eventsCalendarGrid').querySelectorAll('[data-calendar-date]').forEach((button) => button.addEventListener('click', () => {
+    calendarSelectedDate = button.dataset.calendarDate;
+    renderCalendarEvents();
+  }));
+  const dayStart = new Date(`${calendarSelectedDate}T00:00:00`);
+  const nextDay = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  const dayEvents = calendarEvents.filter((event) => new Date(String(event.startsAt).replace(' ', 'T')) < nextDay && new Date(String(event.endsAt).replace(' ', 'T')) >= dayStart);
+  byId('calendarSelectedDate').textContent = dayStart.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  byId('calendarDayEvents').innerHTML = dayEvents.length ? dayEvents.map((event) => `<article class="calendar-event-card"><div class="calendar-event-card-top"><strong>${escapeHtml(event.title)}</strong>${currentUser?.role === 'admin' && event.createdByRole === 'captain' ? `<button type="button" class="btn" data-edit-calendar-event="${Number(event.id)}">Edit</button>` : ''}</div><p>${escapeHtml(event.details || 'No additional details.')}</p><span class="sub">${escapeHtml(new Date(String(event.startsAt).replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} – ${escapeHtml(new Date(String(event.endsAt).replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}${event.location ? ` · ${escapeHtml(event.location)}` : ''}</span><span class="sub calendar-event-author">Added by Capt. ${escapeHtml(event.creatorName || 'Barangay Captain')}</span></article>`).join('') : '<div class="empty">No events scheduled for this day.</div>';
+  byId('calendarDayEvents').querySelectorAll('[data-edit-calendar-event]').forEach((button) => button.addEventListener('click', () => openCalendarEventForm(calendarEvents.find((event) => Number(event.id) === Number(button.dataset.editCalendarEvent)))));
+}
+async function loadCalendarEvents() {
+  const month = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, '0')}`;
+  try {
+    calendarEvents = await api(`/api/events?month=${month}`);
+    renderCalendarEvents();
+  } catch (error) {
+    byId('calendarDayEvents').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    byId('eventsCalendarGrid').innerHTML = '';
+  }
+}
+function openCalendarEventForm(event = null) {
+  const form = byId('calendarEventForm');
+  form.reset();
+  form.dataset.eventId = event ? String(event.id) : '';
+  byId('calendarFormTitle').textContent = event ? 'Edit captain event' : 'Create event';
+  byId('calendarEventName').value = event?.title || '';
+  byId('calendarEventStart').value = event ? String(event.startsAt).replace(' ', 'T').slice(0, 16) : `${calendarSelectedDate}T09:00`;
+  byId('calendarEventEnd').value = event ? String(event.endsAt).replace(' ', 'T').slice(0, 16) : `${calendarSelectedDate}T10:00`;
+  byId('calendarEventLocation').value = event?.location || '';
+  byId('calendarEventDescription').value = event?.details || '';
+  byId('calendarEventFormStatus').textContent = '';
+  form.hidden = false;
+  byId('calendarEventName').focus();
+}
+byId('createCalendarEventBtn').addEventListener('click', () => openCalendarEventForm());
+byId('cancelCalendarEventBtn').addEventListener('click', () => { byId('calendarEventForm').hidden = true; });
+byId('previousCalendarMonthBtn').addEventListener('click', () => { calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1); calendarSelectedDate = localDateKey(calendarMonth); loadCalendarEvents(); });
+byId('nextCalendarMonthBtn').addEventListener('click', () => { calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1); calendarSelectedDate = localDateKey(calendarMonth); loadCalendarEvents(); });
+byId('calendarEventForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const eventId = form.dataset.eventId;
+  const payload = { title: byId('calendarEventName').value.trim(), startsAt: byId('calendarEventStart').value, endsAt: byId('calendarEventEnd').value, location: byId('calendarEventLocation').value.trim(), details: byId('calendarEventDescription').value.trim() };
+  try {
+    await api(eventId ? `/api/events/${eventId}` : '/api/events', { method: eventId ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+    calendarSelectedDate = payload.startsAt.slice(0, 10);
+    const [year, month] = calendarSelectedDate.split('-').map(Number);
+    calendarMonth = new Date(year, month - 1, 1);
+    form.hidden = true;
+    await loadCalendarEvents();
+  } catch (error) { byId('calendarEventFormStatus').textContent = error.message; }
+});
 async function loadTasks() {
   try {
     const tasks = await api('/api/tasks');
-    byId('tasksList').innerHTML = tasks.length ? tasks.map((task) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(task.title)}</strong><p>${escapeHtml(task.details || '')}${task.assignee ? ` · Assigned to ${escapeHtml(task.assignee)}` : ''}</p><span class="tag ${task.status === 'Completed' ? 'green' : 'amber'}">${escapeHtml(task.status)}</span></div>${currentUser?.role === 'tanod' && task.status !== 'Completed' ? `<button class="btn" data-complete-task="${task.id}">Complete</button>` : ''}</div>`).join('') : '<div class="empty">No tasks assigned.</div>';
+    byId('tasksList').innerHTML = tasks.length ? tasks.map((task) => {
+      const start = task.dutyStartsAt ? new Date(String(task.dutyStartsAt).replace(' ', 'T')) : null;
+      const end = task.dutyEndsAt ? new Date(String(task.dutyEndsAt).replace(' ', 'T')) : null;
+      const dutyTime = start && end ? `${start.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Duty hours not set';
+      return `<div class="alert"><div class="alert-text"><strong>${escapeHtml(task.title)}</strong><p>${escapeHtml(task.details || '')}${task.assignee ? ` · Assigned to ${escapeHtml(task.assignee)}` : ''}</p><span class="sub task-duty-time">Duty: ${escapeHtml(dutyTime)}</span><span class="tag ${task.status === 'Completed' ? 'green' : 'amber'}">${escapeHtml(task.status)}</span></div>${currentUser?.role === 'tanod' && task.status !== 'Completed' ? `<button class="btn" data-complete-task="${task.id}">Complete</button>` : ''}</div>`;
+    }).join('') : '<div class="empty">No tasks assigned.</div>';
     byId('tasksList').querySelectorAll('[data-complete-task]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/tasks/${button.dataset.completeTask}`, { method: 'PATCH', body: JSON.stringify({ status: 'Completed' }) }); loadTasks(); }));
   } catch (error) { byId('tasksList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
 }
@@ -290,6 +372,15 @@ async function loadTanods() {
 }
 byId('addCameraBtn').addEventListener('click', async () => { try { await api('/api/cameras', { method: 'POST', body: JSON.stringify({ name: byId('newCameraName').value.trim(), streamUrl: byId('newCameraUrl').value.trim(), location: byId('newCameraLocation').value.trim() }) }); byId('newCameraName').value = ''; byId('newCameraUrl').value = ''; byId('newCameraLocation').value = ''; loadCameras(); loadStats(); } catch (error) { alert(error.message); } });
 byId('publishAnnouncementBtn').addEventListener('click', async () => { try { await api('/api/announcements', { method: 'POST', body: JSON.stringify({ title: byId('announcementTitle').value.trim(), body: byId('announcementBody').value.trim() }) }); byId('announcementTitle').value = ''; byId('announcementBody').value = ''; loadAnnouncements(); } catch (error) { alert(error.message); } });
-byId('assignTaskBtn').addEventListener('click', async () => { try { await api('/api/tasks', { method: 'POST', body: JSON.stringify({ title: byId('taskTitle').value.trim(), details: byId('taskDetails').value.trim(), assignedTo: byId('taskAssignee').value }) }); byId('taskTitle').value = ''; byId('taskDetails').value = ''; loadTasks(); } catch (error) { alert(error.message); } });
+byId('taskForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = byId('taskFormStatus');
+  status.textContent = '';
+  try {
+    await api('/api/tasks', { method: 'POST', body: JSON.stringify({ title: byId('taskTitle').value.trim(), details: byId('taskDetails').value.trim(), assignedTo: byId('taskAssignee').value, dutyStartsAt: byId('taskDutyStart').value, dutyEndsAt: byId('taskDutyEnd').value }) });
+    byId('taskForm').reset();
+    await loadTasks();
+  } catch (error) { status.textContent = error.message; }
+});
 checkAuth();
 window.addEventListener('camera:status', loadStats);

@@ -8,11 +8,12 @@ export default {
   isAdmin: true,
   navigation: [
     ['▣', 'Live cameras', '#camera'],
+    ['\u25b6', 'Past footage', '#recordedFootage'],
     ['⚠', 'Alerts', '#alerts'],
     ['▤', 'Incidents', '#incidents'],
     ['◎', 'Camera setup', '#cameraAdminPanel'],
     ['♙', 'Account management', '#userAdminPanel'],
-    ['◷', 'Announcements', '#announcementsPanel'],
+    ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'Tasks', '#tasksPanel']
   ]
 };
