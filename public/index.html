@@ -90,6 +90,10 @@
               <button class="btn primary" id="detectFaceBtn" type="button">Check Camera</button>
             </div>
           </section>
+          <section class="panel" id="faceReviewPanel" hidden>
+            <div class="panel-head"><div><h3>Unfamiliar face review</h3><div class="sub">Admin review of captured unfamiliar faces</div></div><button class="btn" id="reloadFaceCapturesBtn" type="button">Reload</button></div>
+            <div class="panel-body"><div id="faceCaptureList" class="alert-list"><div class="empty">Loading captures...</div></div></div>
+          </section>
           <section class="panel" id="eventsPanel">
             <div class="panel-head"><div><h3>Events calendar</h3><div class="sub">Shared barangay events</div></div><button class="btn primary" id="createCalendarEventBtn" type="button" hidden>Create event</button></div>
             <div class="panel-body">

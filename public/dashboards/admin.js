@@ -9,8 +9,7 @@ export default {
   navigation: [
     ['▣', 'Live cameras', '#camera'],
     ['\u25b6', 'Past footage', '#recordedFootage'],
-    ['⚠', 'Alerts', '#alerts'],
-    ['▤', 'Incidents', '#incidents'],
+    ['\u25ce', 'Face review', '#faceReviewPanel'],
     ['◎', 'Camera setup', '#cameraAdminPanel'],
     ['♙', 'Account management', '#userAdminPanel'],
     ['◷', 'Events calendar', '#eventsPanel'],

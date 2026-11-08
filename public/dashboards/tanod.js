@@ -9,8 +9,6 @@ export default {
   navigation: [
     ['▣', 'Live cameras', '#camera'],
     ['\u25b6', 'Past footage', '#recordedFootage'],
-    ['⚠', 'Alerts', '#alerts'],
-    ['▤', 'Incidents', '#incidents'],
     ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'My tasks', '#tasksPanel']
   ]

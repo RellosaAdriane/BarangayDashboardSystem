@@ -25,6 +25,8 @@ For an existing database, import [`database/calendar_events_migration.sql`](data
 
 For an existing database, import [`database/task_duty_migration.sql`](database/task_duty_migration.sql) once to add required duty start and end times to assigned tasks.
 
+Fresh installs include the unfamiliar face review table. For an existing database, import [`database/unfamiliar_face_captures_migration.sql`](database/unfamiliar_face_captures_migration.sql) once. Captured snapshots are saved on the server under `storage/unfamiliar-faces` and are only served to admins.
+
 ## Role permissions
 
 - **Tanod:** view camera feeds, read incident history, announcements, and shared calendar events, and view assigned tasks.

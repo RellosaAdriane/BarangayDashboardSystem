@@ -73,7 +73,7 @@ async function setRoleUI(user) {
   loadIncidents(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
   if (sharedCameraRefreshTimer) clearInterval(sharedCameraRefreshTimer);
   if (!dashboard.isAdmin) sharedCameraRefreshTimer = setInterval(refreshSharedCameraUrl, 10000);
-  if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); } else if (canAssignTasks) loadTanods();
+  if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); loadFaceCaptures(); } else if (canAssignTasks) loadTanods();
 }
 function openAuth(mode = 'login') {
   if (setupMode) mode = 'setup';
@@ -366,6 +366,18 @@ async function loadRegistrationRequests() {
     }));
   } catch (error) { showAuthError(error.message); }
 }
+async function loadFaceCaptures() {
+  try {
+    const captures = await api('/api/faces/captures');
+    byId('faceCaptureList').innerHTML = captures.length ? captures.map((capture) => `<div class="alert"><img src="/api/faces/captures/${Number(capture.id)}/image" alt="Captured unfamiliar face" style="width:140px;max-height:110px;object-fit:cover;border-radius:8px"><div class="alert-text"><strong>${capture.status === 'pending' ? 'Awaiting review' : escapeHtml(capture.status === 'kilala' ? 'Kilala' : 'Hindi')}</strong><p>${Number(capture.faceCount)} unfamiliar face${Number(capture.faceCount) === 1 ? '' : 's'} detected</p><span class="alert-time">${escapeHtml(formatDate(capture.capturedAt))}</span></div>${capture.status === 'pending' ? `<div class="approval-actions"><button class="btn primary" data-face-decision="kilala" data-capture-id="${Number(capture.id)}">Kilala</button><button class="btn" data-face-decision="hindi" data-capture-id="${Number(capture.id)}">Hindi</button></div>` : ''}</div>`).join('') : '<div class="empty">No unfamiliar face captures yet.</div>';
+    byId('faceCaptureList').querySelectorAll('[data-face-decision]').forEach((button) => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await api(`/api/faces/captures/${button.dataset.captureId}/decision`, { method: 'PATCH', body: JSON.stringify({ decision: button.dataset.faceDecision }) }); await loadFaceCaptures(); }
+      catch (error) { alert(error.message); button.disabled = false; }
+    }));
+  } catch (error) { byId('faceCaptureList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
+}
+byId('reloadFaceCapturesBtn').addEventListener('click', loadFaceCaptures);
 async function loadTanods() {
   try { const users = await api('/api/tanods'); byId('taskAssignee').innerHTML = users.map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join(''); }
   catch (error) { showAuthError(error.message); }

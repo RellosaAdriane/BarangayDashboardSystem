@@ -24,6 +24,8 @@ const pool = mysql.createPool({
   dateStrings: true
 });
 const recordingsRoot = path.resolve(process.env.RECORDINGS_DIR || path.join(__dirname, 'storage', 'recordings'));
+const unfamiliarFacesRoot = path.resolve(path.join(__dirname, 'storage', 'unfamiliar-faces'));
+let lastUnfamiliarCaptureAt = 0;
 const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const segmentSeconds = Math.min(900, Math.max(60, Number(process.env.RECORDING_SEGMENT_SECONDS) || 300));
 const cameraRecorders = new Map();
@@ -524,7 +526,8 @@ app.get('/api/faces/recognize', requireAuth, async (_req, res) => {
     // intermediate caches otherwise keep returning the previous JPEG.
     const cameraResponse = await fetch(cameraUrl, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (!cameraResponse.ok) throw new Error(`Camera returned HTTP ${cameraResponse.status}`);
-    const form = new FormData(); form.append('file', new Blob([Buffer.from(await cameraResponse.arrayBuffer())], { type: 'image/jpeg' }), 'capture.jpg');
+    const imageBuffer = Buffer.from(await cameraResponse.arrayBuffer());
+    const form = new FormData(); form.append('file', new Blob([imageBuffer], { type: 'image/jpeg' }), 'capture.jpg');
     const url = new URL(`${comprefaceUrl.replace(/\/+$/, '')}/api/v1/recognition/recognize`);
     const configuredDetectionThreshold = Number(process.env.COMPREFACE_DET_PROB_THRESHOLD);
     const detectionThreshold = Number.isFinite(configuredDetectionThreshold)
@@ -549,8 +552,47 @@ app.get('/api/faces/recognize', requireAuth, async (_req, res) => {
         similarity
       };
     });
-    res.json({ success: true, detected: faces.length > 0, detectionThreshold, recognitionThreshold, faces });
+    let captureQueued = false;
+    if (faces.some((face) => !face.recognized) && imageBuffer.length > 0 && imageBuffer.length <= 5 * 1024 * 1024 && Date.now() - lastUnfamiliarCaptureAt >= 60000) {
+      await fs.mkdir(unfamiliarFacesRoot, { recursive: true });
+      const fileName = `${crypto.randomUUID()}.jpg`;
+      await fs.writeFile(path.join(unfamiliarFacesRoot, fileName), imageBuffer, { flag: 'wx' });
+      try {
+        await pool.execute('INSERT INTO unfamiliar_face_captures (image_file, face_count) VALUES (?, ?)', [fileName, faces.filter((face) => !face.recognized).length]);
+        lastUnfamiliarCaptureAt = Date.now();
+        captureQueued = true;
+      } catch (error) {
+        await fs.unlink(path.join(unfamiliarFacesRoot, fileName)).catch(() => {});
+        throw error;
+      }
+    }
+    res.json({ success: true, detected: faces.length > 0, detectionThreshold, recognitionThreshold, captureQueued, faces });
   } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+app.get('/api/faces/captures', allow('admin'), async (_req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT id, face_count AS faceCount, status, captured_at AS capturedAt FROM unfamiliar_face_captures ORDER BY (status = 'pending') DESC, captured_at DESC LIMIT 200");
+    res.json(rows);
+  } catch { res.status(500).json({ error: 'Unable to load unfamiliar face captures. Apply the unfamiliar face migration first.' }); }
+});
+app.get('/api/faces/captures/:id/image', allow('admin'), async (req, res) => {
+  if (!/^\\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid capture ID.' });
+  try {
+    const [[capture]] = await pool.execute('SELECT image_file FROM unfamiliar_face_captures WHERE id = ?', [Number(req.params.id)]);
+    if (!capture || !/^[a-f0-9-]+\\.jpg$/i.test(capture.image_file)) return res.status(404).json({ error: 'Capture not found.' });
+    res.type('image/jpeg').set('Cache-Control', 'private, no-store').sendFile(path.join(unfamiliarFacesRoot, capture.image_file));
+  } catch { res.status(500).json({ error: 'Unable to load capture image.' }); }
+});
+app.patch('/api/faces/captures/:id/decision', allow('admin'), async (req, res) => {
+  const { decision } = req.body || {};
+  if (!['kilala', 'hindi'].includes(decision)) return res.status(400).json({ error: 'Choose Kilala or Hindi.' });
+  try {
+    const [result] = await pool.execute("UPDATE unfamiliar_face_captures SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ? AND status = 'pending'", [decision, req.session.user.id, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Pending face capture not found.' });
+    await audit(req.session.user.id, 'reviewed', 'unfamiliar_face_capture', req.params.id, { decision }, req.ip);
+    res.json({ ok: true, decision });
+  } catch { res.status(500).json({ error: 'Unable to save the face review. Apply the unfamiliar face migration first.' }); }
 });
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
