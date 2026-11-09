@@ -3,6 +3,7 @@ const API_BASE = '/api';
 let incidents = [];
 let connected = false;
 let cameraLoadTimer = null;
+let cameraFirstFrameTimer = null;
 let cameraAttempt = 0;
 
 function escapeHtml(value) {
@@ -78,6 +79,9 @@ async function createIncident(type, note) {
   renderIncidents();
 }
 function connectCamera() {
+  // Keep the dashboard in one viewing mode at a time. The server-side recorder
+  // continues independently while the preview shows the ESP32-CAM stream.
+  stopRecordingPlayback();
   const url = $('cameraUrl').value.trim();
   if (!url) { $('cameraStatus').textContent = 'Status: Enter the ESP32-CAM stream URL first'; return; }
   try {
@@ -90,6 +94,7 @@ function connectCamera() {
   const img = $('cameraImg');
   const attempt = ++cameraAttempt;
   if (cameraLoadTimer) clearInterval(cameraLoadTimer);
+  if (cameraFirstFrameTimer) clearTimeout(cameraFirstFrameTimer);
   connected = false;
   updateStats();
   $('cameraStatus').textContent = 'Status: Trying to load camera feed…';
@@ -100,32 +105,53 @@ function connectCamera() {
     if (attempt !== cameraAttempt || connected || !img.naturalWidth || !img.naturalHeight) return;
     if (cameraLoadTimer) clearInterval(cameraLoadTimer);
     cameraLoadTimer = null;
+    if (cameraFirstFrameTimer) clearTimeout(cameraFirstFrameTimer);
+    cameraFirstFrameTimer = null;
     connected = true;
     if (window.activeCameraId) fetch(`${API_BASE}/cameras/${window.activeCameraId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'online' }) }).then(() => window.dispatchEvent(new Event('camera:status')));
     $('cameraPlaceholder').style.display = 'none';
     $('liveTag').style.display = 'block';
-    $('cameraStatus').textContent = 'Status: Feed loaded';
+    $('cameraStatus').textContent = 'Status: ESP32-CAM feed connected';
     updateStats();
     window.dispatchEvent(new Event('camera:connected'));
   };
   // Multipart MJPEG streams may not fire `load` until the stream ends.
-  // Detect the first decoded frame so recognition can start while it is live.
+  // Detect the first decoded frame while the MJPEG stream is live.
   img.onload = markCameraConnected;
   img.onerror = () => {
     if (attempt !== cameraAttempt) return;
     if (cameraLoadTimer) clearInterval(cameraLoadTimer);
     cameraLoadTimer = null;
+    if (cameraFirstFrameTimer) clearTimeout(cameraFirstFrameTimer);
+    cameraFirstFrameTimer = null;
     connected = false;
     if (window.activeCameraId) fetch(`${API_BASE}/cameras/${window.activeCameraId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'offline' }) }).then(() => window.dispatchEvent(new Event('camera:status')));
     img.style.display = 'none';
     $('cameraPlaceholder').style.display = 'flex';
-    $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>Unable to load stream</strong><span>Check the camera IP, stream path, network,<br>and whether the endpoint works as an image stream.</span>';
-    $('cameraStatus').textContent = 'Status: Connection failed — verify stream URL';
+    $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>ESP32-CAM feed did not reach the dashboard</strong><span>Check that the camera stream URL is reachable from this browser.</span>';
+    $('cameraStatus').textContent = 'Status: ESP32-CAM feed unavailable';
     $('liveTag').style.display = 'none';
     updateStats();
     window.dispatchEvent(new Event('camera:disconnected'));
   };
-  img.src = url;
+  // Load the camera's MJPEG stream directly in the browser.
+  const useSharedProxy = window.currentRole !== 'admin' && window.activeCameraId;
+  const streamUrl = useSharedProxy
+    ? new URL(`${API_BASE}/cameras/${window.activeCameraId}/stream`, window.location.href)
+    : new URL(url);
+  streamUrl.searchParams.set('_t', Date.now());
+  img.src = streamUrl.toString();
+  cameraFirstFrameTimer = setTimeout(() => {
+    if (attempt !== cameraAttempt || connected) return;
+    if (cameraLoadTimer) clearInterval(cameraLoadTimer);
+    cameraLoadTimer = null;
+    img.removeAttribute('src');
+    img.style.display = 'none';
+    $('cameraPlaceholder').style.display = 'flex';
+    $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>No camera frame received</strong><span>Check that the ESP32-CAM stream URL is reachable from this browser.</span>';
+    $('cameraStatus').textContent = 'Status: No camera frame received after 35 seconds';
+    $('liveTag').style.display = 'none';
+  }, 35000);
   const loadTimer = setInterval(() => {
     if (attempt !== cameraAttempt) {
       clearInterval(loadTimer);
@@ -155,6 +181,8 @@ $('disconnectBtn').addEventListener('click', () => {
   cameraAttempt += 1;
   if (cameraLoadTimer) clearInterval(cameraLoadTimer);
   cameraLoadTimer = null;
+  if (cameraFirstFrameTimer) clearTimeout(cameraFirstFrameTimer);
+  cameraFirstFrameTimer = null;
   connected = false;
   if (window.activeCameraId) fetch(`${API_BASE}/cameras/${window.activeCameraId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'offline' }) });
   $('cameraImg').removeAttribute('src');
@@ -165,6 +193,13 @@ $('disconnectBtn').addEventListener('click', () => {
   $('cameraStatus').textContent = 'Status: Disconnected';
   updateStats();
   window.dispatchEvent(new Event('camera:disconnected'));
+});
+$('cameraFullscreenBtn').addEventListener('click', async () => {
+  const frame = document.querySelector('.camera-frame');
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await frame.requestFullscreen();
+  } catch { $('cameraStatus').textContent = 'Status: Fullscreen is unavailable in this browser'; }
 });
 $('testAlertBtn').addEventListener('click', () => createIncident('Test Intruder Alert', 'Demo alert generated manually; no sensor event was received.'));
 $('reportBtn').addEventListener('click', () => {
@@ -182,7 +217,32 @@ function formatRecordingSize(bytes) {
   return size < 1024 * 1024 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 let activeRecordingId = null;
+function stopRecordingPlayback(resetLabel = true) {
+  const player = $('recordingPlayer');
+  if (!player) return;
+  player.pause();
+  player.removeAttribute('src');
+  player.load();
+  player.hidden = true;
+  $('recordingPreview').querySelector('.recording-preview-empty').hidden = false;
+  activeRecordingId = null;
+  if (resetLabel) $('recordingNowPlaying').textContent = 'No clip selected';
+}
 function playRecordingClip(clip) {
+  // Release the live preview connection before opening a saved clip. The
+  // background recorder is server-side and is unaffected by this UI switch.
+  cameraAttempt += 1;
+  if (cameraLoadTimer) clearInterval(cameraLoadTimer);
+  cameraLoadTimer = null;
+  connected = false;
+  $('cameraImg').removeAttribute('src');
+  $('cameraImg').style.display = 'none';
+  $('cameraPlaceholder').style.display = 'flex';
+  $('cameraPlaceholder').innerHTML = '<div class="cam-icon">▣</div><strong>Viewing recorded footage</strong><span>Background recording continues. Connect the camera to return to live view.</span>';
+  $('liveTag').style.display = 'none';
+  $('cameraStatus').textContent = 'Status: Live preview paused while viewing recorded footage';
+  updateStats();
+  window.dispatchEvent(new Event('camera:disconnected'));
   const player = $('recordingPlayer');
   player.pause();
   player.removeAttribute('src');
@@ -315,13 +375,7 @@ $('searchRecordingsBtn').addEventListener('click', loadRecordedFootage);
 $('recordingCameraFilter').addEventListener('change', loadRecordedFootage);
 $('recordingDate').addEventListener('change', loadRecordedFootage);
 $('closeRecordingPlayerBtn').addEventListener('click', () => {
-  const player = $('recordingPlayer');
-  player.pause();
-  player.removeAttribute('src');
-  player.load();
-  player.hidden = true;
-  $('recordingPreview').querySelector('.recording-preview-empty').hidden = false;
-  $('recordingNowPlaying').textContent = 'No clip selected';
+  stopRecordingPlayback();
 });
 $('openRecordingArchiveBtn').addEventListener('click', async () => {
   $('userMenu').hidden = true;

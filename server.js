@@ -6,8 +6,11 @@ const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 const path = require('path');
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
 const fs = require('fs/promises');
 const { spawn } = require('child_process');
+const multer = require('multer');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -24,12 +27,16 @@ const pool = mysql.createPool({
   dateStrings: true
 });
 const recordingsRoot = path.resolve(process.env.RECORDINGS_DIR || path.join(__dirname, 'storage', 'recordings'));
-const unfamiliarFacesRoot = path.resolve(path.join(__dirname, 'storage', 'unfamiliar-faces'));
-let lastUnfamiliarCaptureAt = 0;
 const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const segmentSeconds = Math.min(900, Math.max(60, Number(process.env.RECORDING_SEGMENT_SECONDS) || 300));
 const cameraRecorders = new Map();
 const recorderStates = new Map();
+const taskProofRoot = path.resolve(__dirname, 'storage', 'task-proofs');
+const taskProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_req, file, callback) => callback(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) });
+const parseTaskProofUpload = (req, res, next) => taskProofUpload.single('picture')(req, res, (error) => {
+  if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'Proof pictures must be 5 MB or smaller.' : 'Unable to read the proof picture.' });
+  next();
+});
 
 app.use(express.json({ limit: '2mb' }));
 app.use(session({
@@ -164,7 +171,8 @@ async function runCameraRecorder(recorder) {
     '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_on_network_error', '1', '-reconnect_delay_max', '10', '-rw_timeout', '15000000',
     // MJPEG over Wi-Fi can occasionally lose a frame; drop damaged packets and keep recording.
     '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
-    '-i', recorder.streamUrl,
+    // Record the ESP32-CAM MJPEG stream directly.
+    '-f', 'mpjpeg', '-i', recorder.streamUrl,
     '-map', '0:v:0', '-an', '-vf', 'fps=10,scale=in_range=full:out_range=tv', '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
     '-pix_fmt', 'yuv420p', '-b:v', '500k', '-maxrate', '600k', '-bufsize', '1000k',
     '-force_key_frames', `expr:gte(t,n_forced*${segmentSeconds})`,
@@ -305,6 +313,33 @@ app.patch('/api/incidents/:id/archive', allow('admin'), async (req, res) => {
 app.get('/api/cameras', requireAuth, async (_req, res) => {
   try { const [rows] = await pool.query('SELECT id, name, stream_url AS streamUrl, location, is_enabled AS isEnabled, last_status AS status FROM cameras WHERE is_archived = 0 ORDER BY id'); res.json(rows); }
   catch { res.status(500).json({ error: 'Unable to load cameras.' }); }
+});
+app.get('/api/cameras/:id/stream', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).end('Invalid camera ID.');
+  try {
+    const [[camera]] = await pool.execute('SELECT stream_url FROM cameras WHERE id = ? AND is_archived = 0 AND is_enabled = 1', [Number(req.params.id)]);
+    if (!camera) return res.status(404).end('Camera not found.');
+    const streamUrl = new URL(camera.stream_url);
+    if (!['http:', 'https:'].includes(streamUrl.protocol)) return res.status(400).end('Invalid camera stream URL.');
+    const client = streamUrl.protocol === 'https:' ? https : http;
+    const upstream = client.get(streamUrl, { headers: { Accept: 'multipart/x-mixed-replace, image/jpeg, */*' } }, (cameraResponse) => {
+      if (cameraResponse.statusCode < 200 || cameraResponse.statusCode >= 300) {
+        cameraResponse.resume();
+        if (!res.headersSent) res.status(502).end('Camera stream is unavailable.');
+        return;
+      }
+      res.status(200);
+      res.setHeader('Content-Type', cameraResponse.headers['content-type'] || 'multipart/x-mixed-replace');
+      res.setHeader('Cache-Control', 'no-store');
+      cameraResponse.pipe(res);
+      cameraResponse.on('error', () => res.destroy());
+    });
+    upstream.setTimeout(10000, () => upstream.destroy(new Error('Camera connection timed out.')));
+    upstream.on('error', () => { if (!res.headersSent) res.status(502).end('Unable to connect to camera.'); else res.destroy(); });
+    res.on('close', () => { if (!res.writableEnded) upstream.destroy(); });
+  } catch {
+    if (!res.headersSent) res.status(502).end('Unable to open camera stream.');
+  }
 });
 app.get('/api/recording/status', requireAuth, async (_req, res) => {
   try {
@@ -483,7 +518,7 @@ app.patch('/api/events/:id', allow('admin'), async (req, res) => {
 app.post('/api/announcements', allow('captain', 'admin'), async (req, res) => { const { title, body } = req.body || {}; if (!title || !body) return res.status(400).json({ error: 'Title and announcement are required.' }); try { const [r] = await pool.execute('INSERT INTO announcements (title, body, created_by, published_at) VALUES (?, ?, ?, NOW())', [title.slice(0, 180), body.slice(0, 10000), req.session.user.id]); await audit(req.session.user.id, 'published', 'announcement', r.insertId, null, req.ip); res.status(201).json({ id: r.insertId, title, body }); } catch { res.status(500).json({ error: 'Unable to publish announcement.' }); } });
 app.patch('/api/announcements/:id/archive', allow('admin'), async (req, res) => { try { const [r] = await pool.execute('UPDATE announcements SET is_published = 0 WHERE id = ?', [req.params.id]); if (!r.affectedRows) return res.status(404).json({ error: 'Announcement not found.' }); await audit(req.session.user.id, 'archived', 'announcement', req.params.id, null, req.ip); res.json({ ok: true }); } catch { res.status(500).json({ error: 'Unable to hide announcement.' }); } });
 
-app.get('/api/tasks', requireAuth, async (req, res) => { try { const [rows] = await pool.execute(`SELECT t.id, t.title, t.details, t.status, t.due_at AS dueAt, t.duty_starts_at AS dutyStartsAt, t.duty_ends_at AS dutyEndsAt, t.assigned_to AS assignedTo, u.full_name AS assignee FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to ${req.session.user.role === 'tanod' ? 'WHERE t.assigned_to = ?' : ''} ORDER BY t.duty_starts_at DESC, t.created_at DESC`, req.session.user.role === 'tanod' ? [req.session.user.id] : []); res.json(rows); } catch { res.status(500).json({ error: 'Unable to load tasks. Apply the task duty database migration first.' }); } });
+app.get('/api/tasks', requireAuth, async (req, res) => { try { const filter = req.session.user.role === 'tanod' ? 'WHERE t.assigned_to = ?' : ''; const [rows] = await pool.execute(`SELECT t.id, t.title, t.details, t.status, t.due_at AS dueAt, t.duty_starts_at AS dutyStartsAt, t.duty_ends_at AS dutyEndsAt, t.assigned_to AS assignedTo, u.full_name AS assignee, t.proof_description AS proofDescription, t.proof_image AS proofImage, t.proof_submitted_at AS proofSubmittedAt, t.proof_status AS proofStatus FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to ${filter} ORDER BY t.duty_starts_at DESC, t.created_at DESC`, req.session.user.role === 'tanod' ? [req.session.user.id] : []); res.json(rows); } catch { res.status(500).json({ error: 'Unable to load tasks. Apply the task proof migration first.' }); } });
 app.post('/api/tasks', allow('captain', 'admin'), async (req, res) => {
   const { title, details, assignedTo, dutyStartsAt, dutyEndsAt } = req.body || {};
   const validDateTime = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
@@ -498,7 +533,47 @@ app.post('/api/tasks', allow('captain', 'admin'), async (req, res) => {
     res.status(500).json({ error: 'Unable to assign task. Apply the task duty database migration first.' });
   }
 });
-app.patch('/api/tasks/:id', requireAuth, async (req, res) => { const { status } = req.body || {}; if (!['Pending', 'In Progress', 'Completed', 'Cancelled'].includes(status)) return res.status(400).json({ error: 'Invalid task status.' }); try { const [r] = await pool.execute(`UPDATE tasks SET status = ?, completed_at = IF(? = 'Completed', NOW(), NULL) WHERE id = ? ${req.session.user.role === 'tanod' ? 'AND assigned_to = ?' : ''}`, req.session.user.role === 'tanod' ? [status, status, req.params.id, req.session.user.id] : [status, status, req.params.id]); if (!r.affectedRows) return res.status(404).json({ error: 'Task not found.' }); res.json({ ok: true }); } catch { res.status(500).json({ error: 'Unable to update task.' }); } });
+app.post('/api/tasks/:id/proof', allow('tanod'), parseTaskProofUpload, async (req, res) => {
+  const description = String(req.body.description || '').trim();
+  if (!description || description.length > 2000 || !req.file) return res.status(400).json({ error: 'Add a description and a JPG, PNG, or WebP proof picture (up to 5 MB).' });
+  const extension = ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' })[req.file.mimetype];
+  if (!extension) return res.status(400).json({ error: 'Only JPG, PNG, and WebP pictures are accepted.' });
+  const bytes = req.file.buffer;
+  const validImage = extension === '.jpg' ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+    : extension === '.png' ? bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      : bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+  if (!validImage) return res.status(400).json({ error: 'The uploaded file is not a valid JPG, PNG, or WebP picture.' });
+  try {
+    const [[task]] = await pool.execute("SELECT id, status, proof_status FROM tasks WHERE id = ? AND assigned_to = ?", [req.params.id, req.session.user.id]);
+    if (!task) return res.status(404).json({ error: 'Task not found.' });
+    if (['Completed', 'Cancelled'].includes(task.status) || task.proof_status === 'Pending') return res.status(409).json({ error: 'This task cannot accept a proof submission right now.' });
+    await fs.mkdir(taskProofRoot, { recursive: true });
+    const filename = `${crypto.randomUUID()}${extension}`;
+    await fs.writeFile(path.join(taskProofRoot, filename), req.file.buffer, { flag: 'wx' });
+    await pool.execute("UPDATE tasks SET status = 'In Progress', proof_description = ?, proof_image = ?, proof_submitted_at = NOW(), proof_status = 'Pending', proof_reviewed_by = NULL, proof_reviewed_at = NULL WHERE id = ? AND assigned_to = ?", [description, filename, req.params.id, req.session.user.id]);
+    await audit(req.session.user.id, 'proof_submitted', 'task', req.params.id, null, req.ip);
+    res.status(201).json({ ok: true });
+  } catch (error) { console.error('Unable to save task proof:', error.message); res.status(500).json({ error: 'Unable to submit task proof.' }); }
+});
+app.get('/api/tasks/:id/proof', requireAuth, async (req, res) => {
+  try {
+    const [[task]] = await pool.execute('SELECT assigned_to AS assignedTo, assigned_by AS assignedBy, proof_image AS proofImage FROM tasks WHERE id = ?', [req.params.id]);
+    const user = req.session.user;
+    if (!task || !task.proofImage || (user.role === 'tanod' && Number(task.assignedTo) !== Number(user.id))) return res.status(404).json({ error: 'Proof not found.' });
+    res.set('Cache-Control', 'private, no-store').set('X-Content-Type-Options', 'nosniff').sendFile(path.join(taskProofRoot, path.basename(task.proofImage)), (error) => { if (error && !res.headersSent) res.status(404).end(); });
+  } catch { res.status(500).json({ error: 'Unable to load proof picture.' }); }
+});
+app.post('/api/tasks/:id/review', allow('captain', 'admin'), async (req, res) => {
+  const { decision } = req.body || {};
+  if (!['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
+  try {
+    const [result] = await pool.execute("UPDATE tasks SET proof_status = ?, proof_reviewed_by = ?, proof_reviewed_at = NOW(), status = IF(? = 'approved', 'Completed', 'In Progress'), completed_at = IF(? = 'approved', NOW(), NULL) WHERE id = ? AND proof_status = 'Pending'", [decision === 'approved' ? 'Approved' : 'Rejected', req.session.user.id, decision, decision, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Pending proof not found for a task you can review.' });
+    await audit(req.session.user.id, `proof_${decision}`, 'task', req.params.id, null, req.ip);
+    res.json({ ok: true });
+  } catch (error) { console.error('Unable to review task proof:', error.message); res.status(500).json({ error: 'Unable to review task proof.' }); }
+});
+app.patch('/api/tasks/:id', requireAuth, async (_req, res) => res.status(403).json({ error: 'Tasks can only be completed after proof is submitted and approved.' }));
 
 app.get('/api/users', allow('admin'), async (_req, res) => { try { const [rows] = await pool.query("SELECT id, full_name AS fullName, username, role, is_active AS isActive FROM users WHERE approval_status = 'approved' ORDER BY full_name"); res.json(rows); } catch { res.status(500).json({ error: 'Unable to load users.' }); } });
 app.get('/api/users/requests', allow('admin'), async (_req, res) => { try { const [rows] = await pool.query("SELECT id, full_name AS fullName, username, requested_role AS requestedRole, created_at AS requestedAt FROM users WHERE approval_status = 'pending' ORDER BY created_at"); res.json(rows); } catch { res.status(500).json({ error: 'Unable to load account requests.' }); } });
@@ -515,85 +590,6 @@ app.post('/api/users/:id/decision', allow('admin'), async (req, res) => {
 app.get('/api/tanods', allow('captain', 'admin'), async (_req, res) => { try { const [rows] = await pool.query("SELECT id, full_name AS fullName FROM users WHERE role = 'tanod' AND is_active = 1 ORDER BY full_name"); res.json(rows); } catch { res.status(500).json({ error: 'Unable to load Tanod accounts.' }); } });
 app.post('/api/users', allow('admin'), async (req, res) => { const { fullName, username, password, role } = req.body || {}; if (!fullName || !validUsername(username) || typeof password !== 'string' || password.length < 8 || password.length > 16 || !roles.includes(role)) return res.status(400).json({ error: 'Provide a name, valid username, role, and password of 8–16 characters.' }); try { const hash = await bcrypt.hash(password, 12); const [r] = await pool.execute('INSERT INTO users (full_name, username, password_hash, role) VALUES (?, ?, ?, ?)', [fullName.trim().slice(0, 120), username.trim().toLowerCase().slice(0, 60), hash, role]); await audit(req.session.user.id, 'created', 'user', r.insertId, { role }, req.ip); res.status(201).json({ id: r.insertId, fullName, username, role, isActive: 1 }); } catch (error) { res.status(error.code === 'ER_DUP_ENTRY' ? 409 : 500).json({ error: error.code === 'ER_DUP_ENTRY' ? 'That username is already in use.' : 'Unable to create user.' }); } });
 app.patch('/api/users/:id/role', allow('admin'), async (req, res) => { const { role } = req.body || {}; if (!roles.includes(role)) return res.status(400).json({ error: 'Invalid role.' }); if (Number(req.params.id) === req.session.user.id && role !== 'admin') return res.status(400).json({ error: 'You cannot remove your own admin role.' }); try { await pool.execute('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]); await audit(req.session.user.id, 'role_changed', 'user', req.params.id, { role }, req.ip); res.json({ ok: true }); } catch { res.status(500).json({ error: 'Unable to update role.' }); } });
-
-app.get('/api/faces/recognize', requireAuth, async (_req, res) => {
-  try {
-    const cameraUrl = process.env.ESP32_CAPTURE_URL?.trim();
-    const comprefaceUrl = process.env.COMPREFACE_URL?.trim();
-    const apiKey = process.env.COMPREFACE_API_KEY?.trim();
-    if (!cameraUrl || !comprefaceUrl || !apiKey) return res.status(500).json({ success: false, error: 'Face recognition is not configured in .env' });
-    // Always recognize a fresh ESP32 snapshot; some camera firmware or
-    // intermediate caches otherwise keep returning the previous JPEG.
-    const cameraResponse = await fetch(cameraUrl, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-    if (!cameraResponse.ok) throw new Error(`Camera returned HTTP ${cameraResponse.status}`);
-    const imageBuffer = Buffer.from(await cameraResponse.arrayBuffer());
-    const form = new FormData(); form.append('file', new Blob([imageBuffer], { type: 'image/jpeg' }), 'capture.jpg');
-    const url = new URL(`${comprefaceUrl.replace(/\/+$/, '')}/api/v1/recognition/recognize`);
-    const configuredDetectionThreshold = Number(process.env.COMPREFACE_DET_PROB_THRESHOLD);
-    const detectionThreshold = Number.isFinite(configuredDetectionThreshold)
-      ? Math.min(1, Math.max(0, configuredDetectionThreshold))
-      : 0.7;
-    url.searchParams.set('det_prob_threshold', String(detectionThreshold));
-    const response = await fetch(url, { method: 'POST', headers: { 'x-api-key': apiKey }, body: form });
-    const data = await response.json(); if (!response.ok) throw new Error(data.message || 'Recognition service failed.');
-    const configuredRecognitionThreshold = Number(process.env.COMPREFACE_RECOGNITION_THRESHOLD);
-    const recognitionThreshold = Number.isFinite(configuredRecognitionThreshold)
-      ? Math.min(1, Math.max(0, configuredRecognitionThreshold))
-      : 0.85;
-    const faces = (data.result || []).map((face) => {
-      const match = [...(face.subjects || [])]
-        .filter((subject) => Number.isFinite(Number(subject.similarity)))
-        .sort((a, b) => Number(b.similarity) - Number(a.similarity))[0];
-      const similarity = match ? Number(match.similarity) : null;
-      return {
-        box: face.box,
-        recognized: Boolean(match && similarity >= recognitionThreshold),
-        name: match?.subject || null,
-        similarity
-      };
-    });
-    let captureQueued = false;
-    if (faces.some((face) => !face.recognized) && imageBuffer.length > 0 && imageBuffer.length <= 5 * 1024 * 1024 && Date.now() - lastUnfamiliarCaptureAt >= 60000) {
-      await fs.mkdir(unfamiliarFacesRoot, { recursive: true });
-      const fileName = `${crypto.randomUUID()}.jpg`;
-      await fs.writeFile(path.join(unfamiliarFacesRoot, fileName), imageBuffer, { flag: 'wx' });
-      try {
-        await pool.execute('INSERT INTO unfamiliar_face_captures (image_file, face_count) VALUES (?, ?)', [fileName, faces.filter((face) => !face.recognized).length]);
-        lastUnfamiliarCaptureAt = Date.now();
-        captureQueued = true;
-      } catch (error) {
-        await fs.unlink(path.join(unfamiliarFacesRoot, fileName)).catch(() => {});
-        throw error;
-      }
-    }
-    res.json({ success: true, detected: faces.length > 0, detectionThreshold, recognitionThreshold, captureQueued, faces });
-  } catch (error) { res.status(500).json({ success: false, error: error.message }); }
-});
-
-app.get('/api/faces/captures', allow('admin'), async (_req, res) => {
-  try {
-    const [rows] = await pool.query("SELECT id, face_count AS faceCount, status, captured_at AS capturedAt FROM unfamiliar_face_captures ORDER BY (status = 'pending') DESC, captured_at DESC LIMIT 200");
-    res.json(rows);
-  } catch { res.status(500).json({ error: 'Unable to load unfamiliar face captures. Apply the unfamiliar face migration first.' }); }
-});
-app.get('/api/faces/captures/:id/image', allow('admin'), async (req, res) => {
-  if (!/^\\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid capture ID.' });
-  try {
-    const [[capture]] = await pool.execute('SELECT image_file FROM unfamiliar_face_captures WHERE id = ?', [Number(req.params.id)]);
-    if (!capture || !/^[a-f0-9-]+\\.jpg$/i.test(capture.image_file)) return res.status(404).json({ error: 'Capture not found.' });
-    res.type('image/jpeg').set('Cache-Control', 'private, no-store').sendFile(path.join(unfamiliarFacesRoot, capture.image_file));
-  } catch { res.status(500).json({ error: 'Unable to load capture image.' }); }
-});
-app.patch('/api/faces/captures/:id/decision', allow('admin'), async (req, res) => {
-  const { decision } = req.body || {};
-  if (!['kilala', 'hindi'].includes(decision)) return res.status(400).json({ error: 'Choose Kilala or Hindi.' });
-  try {
-    const [result] = await pool.execute("UPDATE unfamiliar_face_captures SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ? AND status = 'pending'", [decision, req.session.user.id, req.params.id]);
-    if (!result.affectedRows) return res.status(404).json({ error: 'Pending face capture not found.' });
-    await audit(req.session.user.id, 'reviewed', 'unfamiliar_face_capture', req.params.id, { decision }, req.ip);
-    res.json({ ok: true, decision });
-  } catch { res.status(500).json({ error: 'Unable to save the face review. Apply the unfamiliar face migration first.' }); }
-});
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Barangay dashboard running at http://localhost:${PORT}`);

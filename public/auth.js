@@ -8,9 +8,10 @@ const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() +
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let calendarSelectedDate = localDateKey(new Date());
 let calendarEvents = [];
+let lastPendingProofCount = null;
 
 async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
+  const response = await fetch(path, { credentials: 'same-origin', ...options, headers: options.body instanceof FormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) } });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
@@ -55,6 +56,7 @@ document.addEventListener('change', (event) => {
 });
 async function setRoleUI(user) {
   currentUser = user;
+  byId('enableTaskNotificationsBtn').hidden = !['captain', 'admin'].includes(user.role) || !('Notification' in window) || Notification.permission === 'granted';
   window.currentRole = user.role;
   byId('authCover').hidden = true;
   byId('landing').hidden = true;
@@ -70,10 +72,12 @@ async function setRoleUI(user) {
   ]);
   applyDashboardLayout(user, dashboard);
   const canAssignTasks = dashboard.canAssignTasks;
-  loadIncidents(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
+    loadIncidents(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
+    if (window.taskRefreshTimer) clearInterval(window.taskRefreshTimer);
+    window.taskRefreshTimer = setInterval(loadTasks, 30000);
   if (sharedCameraRefreshTimer) clearInterval(sharedCameraRefreshTimer);
   if (!dashboard.isAdmin) sharedCameraRefreshTimer = setInterval(refreshSharedCameraUrl, 10000);
-  if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); loadFaceCaptures(); } else if (canAssignTasks) loadTanods();
+  if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); } else if (canAssignTasks) loadTanods();
 }
 function openAuth(mode = 'login') {
   if (setupMode) mode = 'setup';
@@ -333,15 +337,43 @@ byId('calendarEventForm').addEventListener('submit', async (event) => {
 async function loadTasks() {
   try {
     const tasks = await api('/api/tasks');
+    const pendingProofs = tasks.filter((task) => task.proofStatus === 'Pending').length;
+    if (currentUser?.role !== 'tanod') {
+      byId('taskReviewCount').textContent = pendingProofs ? `${pendingProofs} proof${pendingProofs === 1 ? '' : 's'} waiting for review` : 'Assigned duties and proof reviews';
+      if (lastPendingProofCount !== null && pendingProofs > lastPendingProofCount && 'Notification' in window && Notification.permission === 'granted') new Notification('Task proof submitted', { body: `${pendingProofs} task proof${pendingProofs === 1 ? '' : 's'} waiting for your review.` });
+      lastPendingProofCount = pendingProofs;
+    }
     byId('tasksList').innerHTML = tasks.length ? tasks.map((task) => {
       const start = task.dutyStartsAt ? new Date(String(task.dutyStartsAt).replace(' ', 'T')) : null;
       const end = task.dutyEndsAt ? new Date(String(task.dutyEndsAt).replace(' ', 'T')) : null;
       const dutyTime = start && end ? `${start.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Duty hours not set';
-      return `<div class="alert"><div class="alert-text"><strong>${escapeHtml(task.title)}</strong><p>${escapeHtml(task.details || '')}${task.assignee ? ` · Assigned to ${escapeHtml(task.assignee)}` : ''}</p><span class="sub task-duty-time">Duty: ${escapeHtml(dutyTime)}</span><span class="tag ${task.status === 'Completed' ? 'green' : 'amber'}">${escapeHtml(task.status)}</span></div>${currentUser?.role === 'tanod' && task.status !== 'Completed' ? `<button class="btn" data-complete-task="${task.id}">Complete</button>` : ''}</div>`;
+      const submitted = task.proofSubmittedAt ? new Date(String(task.proofSubmittedAt).replace(' ', 'T')).toLocaleString() : '';
+      const review = currentUser?.role !== 'tanod' && task.proofStatus === 'Pending' ? `<details class="task-proof"><summary><strong>Review submitted proof</strong> · ${escapeHtml(submitted)}</summary><p>${escapeHtml(task.proofDescription || '')}</p><a href="/api/tasks/${Number(task.id)}/proof" target="_blank" rel="noopener"><img class="task-proof-image" src="/api/tasks/${Number(task.id)}/proof" alt="Completion proof for ${escapeHtml(task.title)}"></a><div class="approval-actions"><button class="btn primary" data-review-task="approved" data-task-id="${Number(task.id)}">Approve</button><button class="btn" data-review-task="rejected" data-task-id="${Number(task.id)}">Reject</button></div></details>` : task.proofImage ? `<details class="task-proof"><summary>${task.proofStatus === 'Approved' ? 'Proof approved' : task.proofStatus === 'Rejected' ? 'Proof rejected — please submit a new proof.' : 'Proof submitted'}${submitted ? ` · ${escapeHtml(submitted)}` : ''}</summary><p>${escapeHtml(task.proofDescription || '')}</p><a href="/api/tasks/${Number(task.id)}/proof" target="_blank" rel="noopener"><img class="task-proof-image" src="/api/tasks/${Number(task.id)}/proof" alt="Task proof"></a></details>` : '';
+      const proofForm = currentUser?.role === 'tanod' && task.status !== 'Completed' && task.status !== 'Cancelled' && task.proofStatus !== 'Pending' ? `<form class="task-proof-form" data-proof-task="${Number(task.id)}"><label class="sub">Completion description<textarea class="form-control" name="description" maxlength="2000" required></textarea></label><label class="sub">Completion picture<input class="form-control" type="file" name="picture" accept="image/jpeg,image/png,image/webp" required></label><button class="btn primary" type="submit">${task.proofStatus === 'Rejected' ? 'Resubmit proof' : 'Submit proof for review'}</button><span role="status"></span></form>` : '';
+      const displayStatus = task.proofStatus === 'Pending' ? 'Awaiting approval' : task.status;
+      return `<div class="alert task-card"><div class="alert-text"><strong>${escapeHtml(task.title)}</strong><p>${escapeHtml(task.details || '')}${task.assignee ? ` · Assigned to ${escapeHtml(task.assignee)}` : ''}</p><span class="sub task-duty-time">Duty: ${escapeHtml(dutyTime)}</span><span class="tag ${task.status === 'Completed' ? 'green' : task.proofStatus === 'Pending' ? 'amber' : ''}">${escapeHtml(displayStatus)}</span>${review}${proofForm}</div></div>`;
     }).join('') : '<div class="empty">No tasks assigned.</div>';
-    byId('tasksList').querySelectorAll('[data-complete-task]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/tasks/${button.dataset.completeTask}`, { method: 'PATCH', body: JSON.stringify({ status: 'Completed' }) }); loadTasks(); }));
+    byId('tasksList').querySelectorAll('[data-proof-task]').forEach((form) => form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      const status = form.querySelector('[role="status"]');
+      button.disabled = true;
+      try { const data = new FormData(form); await api(`/api/tasks/${form.dataset.proofTask}/proof`, { method: 'POST', body: data }); await loadTasks(); }
+      catch (error) { status.textContent = error.message; button.disabled = false; }
+    }));
+    byId('tasksList').querySelectorAll('[data-review-task]').forEach((button) => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await api(`/api/tasks/${button.dataset.taskId}/review`, { method: 'POST', body: JSON.stringify({ decision: button.dataset.reviewTask }) }); await loadTasks(); }
+      catch (error) { alert(error.message); button.disabled = false; }
+    }));
   } catch (error) { byId('tasksList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
 }
+byId('enableTaskNotificationsBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  const permission = await Notification.requestPermission();
+  byId('enableTaskNotificationsBtn').hidden = permission === 'granted';
+  if (permission === 'granted') byId('taskReviewCount').textContent = 'Task proof notifications enabled';
+});
 async function loadUsers() {
   try {
     const users = await api('/api/users');
@@ -366,18 +398,6 @@ async function loadRegistrationRequests() {
     }));
   } catch (error) { showAuthError(error.message); }
 }
-async function loadFaceCaptures() {
-  try {
-    const captures = await api('/api/faces/captures');
-    byId('faceCaptureList').innerHTML = captures.length ? captures.map((capture) => `<div class="alert"><img src="/api/faces/captures/${Number(capture.id)}/image" alt="Captured unfamiliar face" style="width:140px;max-height:110px;object-fit:cover;border-radius:8px"><div class="alert-text"><strong>${capture.status === 'pending' ? 'Awaiting review' : escapeHtml(capture.status === 'kilala' ? 'Kilala' : 'Hindi')}</strong><p>${Number(capture.faceCount)} unfamiliar face${Number(capture.faceCount) === 1 ? '' : 's'} detected</p><span class="alert-time">${escapeHtml(formatDate(capture.capturedAt))}</span></div>${capture.status === 'pending' ? `<div class="approval-actions"><button class="btn primary" data-face-decision="kilala" data-capture-id="${Number(capture.id)}">Kilala</button><button class="btn" data-face-decision="hindi" data-capture-id="${Number(capture.id)}">Hindi</button></div>` : ''}</div>`).join('') : '<div class="empty">No unfamiliar face captures yet.</div>';
-    byId('faceCaptureList').querySelectorAll('[data-face-decision]').forEach((button) => button.addEventListener('click', async () => {
-      button.disabled = true;
-      try { await api(`/api/faces/captures/${button.dataset.captureId}/decision`, { method: 'PATCH', body: JSON.stringify({ decision: button.dataset.faceDecision }) }); await loadFaceCaptures(); }
-      catch (error) { alert(error.message); button.disabled = false; }
-    }));
-  } catch (error) { byId('faceCaptureList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
-}
-byId('reloadFaceCapturesBtn').addEventListener('click', loadFaceCaptures);
 async function loadTanods() {
   try { const users = await api('/api/tanods'); byId('taskAssignee').innerHTML = users.map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join(''); }
   catch (error) { showAuthError(error.message); }

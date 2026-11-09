@@ -16,7 +16,6 @@ export function applyDashboardLayout(user, dashboard) {
   byId('cameraControls').hidden = !dashboard.isAdmin;
   byId('cameraAdminPanel').hidden = !dashboard.isAdmin;
   byId('userAdminPanel').hidden = !dashboard.isAdmin;
-  byId('faceReviewPanel').hidden = !dashboard.isAdmin;
   byId('announcementForm').hidden = !dashboard.canPublish;
   byId('taskForm').hidden = !dashboard.canAssignTasks;
   byId('createCalendarEventBtn').hidden = user.role !== 'captain';

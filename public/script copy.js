@@ -109,7 +109,7 @@ function connectCamera() {
     window.dispatchEvent(new Event('camera:connected'));
   };
   // Multipart MJPEG streams may not fire `load` until the stream ends.
-  // Detect the first decoded frame so recognition can start while it is live.
+  // Detect the first decoded frame while the MJPEG stream is live.
   img.onload = markCameraConnected;
   img.onerror = () => {
     if (attempt !== cameraAttempt) return;

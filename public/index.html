@@ -46,9 +46,9 @@
             <div class="panel-body">
               <div class="camera-frame">
                 <img id="cameraImg" alt="ESP32-CAM live stream">
-                <svg id="faceOverlay" class="face-overlay" aria-hidden="true"></svg>
                 <div class="camera-placeholder" id="cameraPlaceholder"><div class="cam-icon">â–£</div><strong>Camera feed not connected</strong><span>Connect to the saved camera feed to begin viewing.</span></div>
                 <span class="live-tag" id="liveTag">LIVE</span>
+                <button class="camera-fullscreen" id="cameraFullscreenBtn" type="button" aria-label="View camera feed fullscreen" title="Fullscreen">Full</button>
               </div>
               <div class="camera-meta"><span class="small" id="cameraStatus">Status: Waiting for camera URL</span><div class="cam-controls" id="cameraControls"><button class="btn primary" id="connectBtn">Connect Camera</button><button class="btn" id="disconnectBtn">Disconnect</button></div></div>
               <div id="cameraUrlSettings"><div class="field-row"><input id="cameraUrl" type="url" placeholder="Example: http://192.168.1.102:81/stream" aria-label="ESP32-CAM stream URL"><button class="btn" id="saveUrlBtn">Save camera URL</button></div>
@@ -76,23 +76,8 @@
               <input id="recordingFrom" type="datetime-local" hidden><input id="recordingTo" type="datetime-local" hidden>
               <button id="searchRecordingsBtn" type="button" hidden>Search clips</button>
               <p class="sub" id="recordingStatus" role="status">Recordings are saved in five-minute clips while a camera is enabled.</p>
-              <div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody id="recordingRows"><tr><td colspan="6" class="empty">Loading recordings…</td></tr></tbody></table></div>
+              <div class="table-wrap recording-list-scroll"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody id="recordingRows"><tr><td colspan="6" class="empty">Loading recordings…</td></tr></tbody></table></div>
             </div>
-          </section>
-          <section class="panel" id="faceDetection">
-            <div class="panel-head">
-              <div><h3>Face Detection</h3><div class="sub">Automatic CompreFace recognition</div></div>
-              <span class="tag amber" id="detectionBadge">READY</span>
-            </div>
-            <div class="panel-body">
-              <p id="detectionResult">Waiting for camera...</p>
-              <p class="sub" id="detectionDetails">Connect the camera to start face tracking.</p>
-              <button class="btn primary" id="detectFaceBtn" type="button">Check Camera</button>
-            </div>
-          </section>
-          <section class="panel" id="faceReviewPanel" hidden>
-            <div class="panel-head"><div><h3>Unfamiliar face review</h3><div class="sub">Admin review of captured unfamiliar faces</div></div><button class="btn" id="reloadFaceCapturesBtn" type="button">Reload</button></div>
-            <div class="panel-body"><div id="faceCaptureList" class="alert-list"><div class="empty">Loading captures...</div></div></div>
           </section>
           <section class="panel" id="eventsPanel">
             <div class="panel-head"><div><h3>Events calendar</h3><div class="sub">Shared barangay events</div></div><button class="btn primary" id="createCalendarEventBtn" type="button" hidden>Create event</button></div>
@@ -127,7 +112,7 @@
             <div class="table-wrap"><table><thead><tr><th>Device</th><th>Status</th></tr></thead><tbody><tr><td>ESP32-CAM 01</td><td id="deviceStatus" class="offline">Offline</td></tr></tbody></table></div>
           </section>
           <section class="panel" id="tasksPanel">
-            <div class="panel-head"><div><h3>Team tasks</h3><div class="sub">Assigned duties and shift hours</div></div></div>
+            <div class="panel-head"><div><h3>Team tasks</h3><div class="sub" id="taskReviewCount">Assigned duties and shift hours</div></div><button class="btn" id="enableTaskNotificationsBtn" type="button" hidden>Enable notifications</button></div>
             <div class="panel-body">
               <div id="tasksList" class="alert-list"><div class="empty">Loading tasks...</div></div>
               <form id="taskForm" class="task-assignment-form" hidden>
@@ -166,6 +151,5 @@
 <div class="auth-cover recording-archive-cover" id="recordingArchiveWrap" hidden><section class="auth-card recording-archive-card" role="dialog" aria-modal="true" aria-labelledby="recordingArchiveTitle"><button class="auth-close" id="closeRecordingArchiveBtn" type="button" aria-label="Close archived recordings">&times;</button><h2 id="recordingArchiveTitle">Archived recordings</h2><p>Archived clips can be restored for one year, then they are permanently deleted.</p><div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Archived</th><th>Size</th><th></th></tr></thead><tbody id="recordingArchiveRows"><tr><td colspan="6" class="empty">Open the archive to load clips.</td></tr></tbody></table></div></section></div>
 <script src="/script.js"></script>
 <script src="/auth.js"></script>
-<script src="/detection.js"></script>
 </body>
 </html>

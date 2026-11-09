@@ -25,7 +25,7 @@ For an existing database, import [`database/calendar_events_migration.sql`](data
 
 For an existing database, import [`database/task_duty_migration.sql`](database/task_duty_migration.sql) once to add required duty start and end times to assigned tasks.
 
-Fresh installs include the unfamiliar face review table. For an existing database, import [`database/unfamiliar_face_captures_migration.sql`](database/unfamiliar_face_captures_migration.sql) once. Captured snapshots are saved on the server under `storage/unfamiliar-faces` and are only served to admins.
+For an existing database, import [`database/task_proof_migration.sql`](database/task_proof_migration.sql) once to let Tanods submit completion descriptions and pictures for captain/admin approval. Proof pictures are saved under `storage/task-proofs` and served only to the assigned Tanod and captain/admin reviewers.
 
 ## Role permissions
 
@@ -37,7 +37,7 @@ Fresh installs include the unfamiliar face review table. For an existing databas
 
 ## Configure and run
 
-1. Add the settings from `.env.example` to your existing `.env` (or copy the example if you do not have one), then set the MySQL details to match XAMPP. A default XAMPP install commonly uses `root` with an empty password; use the credentials configured on your computer. Keep any camera/CompreFace values already in `.env`.
+1. Add the settings from `.env.example` to your existing `.env` (or copy the example if you do not have one), then set the MySQL details to match XAMPP. A default XAMPP install commonly uses `root` with an empty password; use the credentials configured on your computer.
 2. Set `SESSION_SECRET` to a long random value.
 3. Install dependencies and start the app:
 
@@ -60,9 +60,11 @@ The app now stores accounts and operational records in MySQL and checks roles on
 
 The camera online total reflects a feed that the dashboard has successfully loaded. Camera stream URLs must be reachable by the browser on the user's network. For real use, serve the app over HTTPS and use a persistent session store instead of the development memory store.
 
+See the [system context diagram](docs/context-diagram.md) for the dashboard's connections to users, the ESP32-CAM, MySQL, FFmpeg, and recording storage.
+
 ## Past camera footage playback
 
-The server records every enabled, unarchived camera as five-minute H.264 MP4 clips. This requires FFmpeg on the Node.js server. The ESP32-CAM URL must be a stream endpoint FFmpeg can read, typically the camera's MJPEG `/stream` URL. CompreFace recognition continues to use its separate snapshot URL.
+The server records every enabled, unarchived camera as five-minute H.264 MP4 clips. This requires FFmpeg on the Node.js server. FFmpeg reads the ESP32-CAM MJPEG stream directly.
 
 1. Install FFmpeg on the computer running Node.js. In a new terminal, run `ffmpeg -version` to confirm it is available. If it is not on `PATH`, set `FFMPEG_PATH` in `.env` to its executable, for example `C:/ffmpeg/bin/ffmpeg.exe` on Windows.
 2. For an existing database, import `database/camera_recordings_migration.sql` once. Fresh installs get the table from `database/barangay_dashboard.sql`.
@@ -75,9 +77,9 @@ The server records every enabled, unarchived camera as five-minute H.264 MP4 cli
    ```
 
    Segment duration can be set from 60 to 900 seconds. The recordings directory contains the MP4 files; keep it on a disk with enough free space and include it in your backup plan.
-4. Restart the Node.js app. It starts a recorder for each enabled camera and retries when a stream disconnects. Save a reachable ESP32-CAM stream URL in Admin camera settings. New clips appear after each segment closes.
+4. Restart the Node.js app. It starts a recorder for each enabled camera and retries when a stream disconnects. Save a reachable ESP32-CAM MJPEG stream URL (for example, `http://192.168.1.6:81/stream`) in Admin camera settings. Recording starts automatically and new clips appear after each segment closes; the live dashboard preview can remain open at the same time.
 5. Open **Recorded Footage** in the camera dashboard. Choose a camera and a from/to date and time, select **Search clips**, then select **Play**. All signed-in dashboard roles can view recordings.
 
 The recorder converts the camera stream to H.264 at 10 frames per second and approximately 500 kbit/s to keep clips broadly playable. At that bitrate, budget roughly 225 MB per camera per hour; actual usage varies with the scene. Clips are stored on the Node.js host, not on the ESP32-CAM, and the stream must be reachable from that host. Admins can archive clips and restore them for up to one year. The server automatically deletes archived clips after one year, checking at startup and then daily. Keep the dashboard on a trusted network because footage may contain identifiable people.
 
-Face recognition remains optional; configure its values in `.env`. The example uses a 0.7 face-detection confidence threshold and a 0.85 identity similarity threshold to reduce false detections and false matches. Higher thresholds can miss faces, especially in dim or low-resolution footage. For better results, use a clear, well-lit, front-facing camera image and enroll each person with several varied, good-quality images in CompreFace. Restart the app after changing `.env`. Keep API credentials private and do not expose this dashboard publicly without HTTPS.
+
