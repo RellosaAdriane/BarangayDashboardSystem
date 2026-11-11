@@ -13,7 +13,7 @@ export function applyDashboardLayout(user, dashboard) {
   byId('cameraUrl').disabled = !dashboard.isAdmin;
   byId('saveUrlBtn').hidden = !dashboard.isAdmin;
   byId('cameraUrlSettings').hidden = !dashboard.isAdmin;
-  byId('cameraControls').hidden = !dashboard.isAdmin;
+  byId('cameraControls').hidden = false;
   byId('cameraAdminPanel').hidden = !dashboard.isAdmin;
   byId('userAdminPanel').hidden = !dashboard.isAdmin;
   byId('announcementForm').hidden = !dashboard.canPublish;
@@ -23,9 +23,11 @@ export function applyDashboardLayout(user, dashboard) {
   nav.innerHTML = dashboard.navigation
     .map(([icon, label, href], index) => `<a class="${index === 0 ? 'active' : ''}" href="${href}"><span class="ico">${icon}</span>${label}</a>`)
     .join('');
+  let useDashboardDefault = Boolean(dashboard.defaultRoute);
   const renderRoute = () => {
-    const defaultRoute = dashboard.navigation[0][2];
-    let route = window.location.hash || defaultRoute;
+    const defaultRoute = dashboard.defaultRoute || dashboard.navigation[0][2];
+    let route = useDashboardDefault ? defaultRoute : window.location.hash || defaultRoute;
+    useDashboardDefault = false;
     const allowedRoute = dashboard.navigation.some(([, , href]) => href === route);
     const routePanel = byId(route.slice(1));
     if (!window.location.hash || !allowedRoute || !routePanel || routePanel.hidden) {

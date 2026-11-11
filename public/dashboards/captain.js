@@ -6,6 +6,7 @@ export default {
   canPublish: true,
   canAssignTasks: true,
   isAdmin: false,
+  defaultRoute: '#camera',
   navigation: [
     ['+', 'Report incident', '#quickIncidentPanel'],
     ['▣', 'Live cameras', '#camera'],

@@ -3,7 +3,6 @@ let currentUser = null;
 let setupMode = false;
 let authMode = 'login';
 let cameraFeeds = [];
-let sharedCameraRefreshTimer = null;
 const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let calendarSelectedDate = localDateKey(new Date());
@@ -31,6 +30,23 @@ function showFieldError(input, text) {
   const control = input.closest('.password-control') || input;
   control.insertAdjacentElement('afterend', message);
   input.requiredErrorElement = message;
+}
+function isAtLeast18(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const birthDate = new Date(year, month - 1, day);
+  if (birthDate.getFullYear() !== year || birthDate.getMonth() !== month - 1 || birthDate.getDate() !== day) return false;
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  if (today.getMonth() < month - 1 || (today.getMonth() === month - 1 && today.getDate() < day)) age -= 1;
+  return age >= 18;
+}
+function setBirthDateLimit() {
+  const today = new Date();
+  const latestAdultBirthDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+  const maxDate = localDateKey(latestAdultBirthDate);
+  byId('registerDob').max = maxDate;
+  byId('setupDob').max = maxDate;
 }
 function validateRequiredFields(form) {
   const required = [...form.querySelectorAll(':required')]
@@ -75,13 +91,12 @@ async function setRoleUI(user) {
     loadIncidents(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
     if (window.taskRefreshTimer) clearInterval(window.taskRefreshTimer);
     window.taskRefreshTimer = setInterval(loadTasks, 30000);
-  if (sharedCameraRefreshTimer) clearInterval(sharedCameraRefreshTimer);
-  if (!dashboard.isAdmin) sharedCameraRefreshTimer = setInterval(refreshSharedCameraUrl, 10000);
   if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); } else if (canAssignTasks) loadTanods();
 }
 function openAuth(mode = 'login') {
   if (setupMode) mode = 'setup';
   authMode = mode;
+  setBirthDateLimit();
   byId('authCover').hidden = false;
   byId('authError').textContent = '';
   byId('authForm').querySelectorAll('[aria-invalid="true"]').forEach(clearRequiredError);
@@ -103,7 +118,7 @@ function openAuth(mode = 'login') {
   });
   byId('credentialFields').hidden = false;
   byId('authSubmit').hidden = false;
-  byId('authSwitch').hidden = mode === 'setup';
+  byId('authSwitch').hidden = mode !== 'register';
   byId('loginPassword').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   byId('loginPassword').minLength = ['setup', 'register'].includes(mode) ? 8 : -1;
   byId('loginPassword').maxLength = ['setup', 'register'].includes(mode) ? 16 : 128;
@@ -129,10 +144,8 @@ function openAuth(mode = 'login') {
     byId('authSubmit').textContent = 'Log in';
   }
   byId('authSwitch').innerHTML = mode === 'register'
-    ? 'Already have an account? <button type="button" id="switchToLogin">Log in</button>'
-    : 'New to BarangayPOB-3A? <button type="button" id="switchToRegister">Request an account</button>';
-  byId('switchToLogin')?.addEventListener('click', () => openAuth('login'));
-  byId('switchToRegister')?.addEventListener('click', () => openAuth('register'));
+    ? 'Already have an account? <a id="switchToLogin" href="/?auth=login">Log in</a>'
+    : 'New to BarangayPOB-3A? <a id="switchToRegister" href="/?auth=register">Request an account</a>';
 }
 async function checkAuth() {
   try {
@@ -142,12 +155,20 @@ async function checkAuth() {
     byId('app').hidden = true;
     byId('landing').hidden = false;
     byId('authCover').hidden = true;
+    const authRequest = new URLSearchParams(window.location.search).get('auth');
+    if (authRequest === 'login' || authRequest === 'register') openAuth(authRequest);
   } catch { byId('app').hidden = true; byId('landing').hidden = false; byId('authCover').hidden = true; }
 }
 byId('authForm').addEventListener('submit', async (event) => {
   event.preventDefault(); showAuthError('');
   if (!validateRequiredFields(event.currentTarget)) return;
   if (['setup', 'register'].includes(authMode)) {
+    const birthDate = byId(authMode === 'register' ? 'registerDob' : 'setupDob');
+    if (!isAtLeast18(birthDate.value)) {
+      showFieldError(birthDate, 'You must be at least 18 years old to create an account.');
+      birthDate.focus();
+      return;
+    }
     const password = byId('loginPassword');
     if (password.value.length < 8 || password.value.length > 16) {
       showFieldError(password, 'Password must be 8 to 16 characters.');
@@ -181,7 +202,8 @@ byId('authForm').addEventListener('submit', async (event) => {
       byId('registerFields').hidden = true;
       byId('credentialFields').hidden = true;
       byId('authSubmit').hidden = true;
-      byId('authSwitch').hidden = true;
+      byId('authSwitch').hidden = false;
+      byId('authSwitch').innerHTML = 'Already have an account? <a id="switchToLogin" href="/?auth=login">Go to login</a>';
       return;
     }
     await setRoleUI(result.user);
@@ -214,6 +236,8 @@ document.addEventListener('click', (event) => {
 byId('openSettingsBtn').addEventListener('click', () => {
   byId('userMenu').hidden = true;
   byId('userAvatar').setAttribute('aria-expanded', 'false');
+  byId('settingsPasswordForm').reset();
+  byId('settingsPasswordStatus').textContent = '';
   byId('settingsCover').hidden = false;
   byId('closeSettingsBtn').focus();
 });
@@ -227,6 +251,30 @@ document.addEventListener('keydown', (event) => {
   }
 });
 byId('logoutBtn').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
+byId('settingsPasswordForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const status = byId('settingsPasswordStatus');
+  status.textContent = '';
+  button.disabled = true;
+  try {
+    const result = await api('/api/auth/password', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        currentPassword: byId('currentAccountPassword').value,
+        newPassword: byId('newAccountPassword').value,
+        confirmPassword: byId('confirmAccountPassword').value
+      })
+    });
+    form.reset();
+    status.textContent = result.message;
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 async function loadStats() {
   try { const stats = await api('/api/stats'); byId('totalCams').textContent = stats.cameras; byId('onlineCams').textContent = stats.online; byId('activeCount').textContent = stats.active; byId('todayCount').textContent = stats.today; }
@@ -235,6 +283,13 @@ async function loadStats() {
 async function loadCameras() {
   try {
     cameraFeeds = await api('/api/cameras');
+    const selectedCamera = cameraFeeds.find((camera) => Number(camera.id) === Number(window.activeCameraId)) || cameraFeeds[0];
+    if (selectedCamera) {
+      window.activeCameraId = Number(selectedCamera.id);
+      if (!byId('cameraUrl').value) byId('cameraUrl').value = selectedCamera.streamUrl;
+    } else {
+      window.activeCameraId = null;
+    }
     const recordingCameraFilter = byId('recordingCameraFilter');
     if (recordingCameraFilter) recordingCameraFilter.innerHTML = '<option value="">All cameras</option>' + cameraFeeds.map((camera) => `<option value="${Number(camera.id)}">${escapeHtml(camera.name)}</option>`).join('');
     window.loadRecordedFootage?.();
@@ -242,25 +297,12 @@ async function loadCameras() {
     const select = byId('cameraList');
     if (select) select.innerHTML = cameraFeeds.length ? cameraFeeds.map((cam) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(cam.name)}</strong><p>${escapeHtml(cam.location || 'No location')} · ${escapeHtml(cam.status)}</p></div><button class="btn" data-camera-id="${cam.id}" data-camera-url="${escapeHtml(cam.streamUrl)}">View</button></div>`).join('') : '<div class="empty">No cameras configured.</div>';
     select?.querySelectorAll('[data-camera-id]').forEach((button) => button.addEventListener('click', () => { window.activeCameraId = Number(button.dataset.cameraId); byId('cameraUrl').value = button.dataset.cameraUrl; connectCamera(); }));
-    if (cameraFeeds.length && !byId('cameraUrl').value) { window.activeCameraId = Number(cameraFeeds[0].id); byId('cameraUrl').value = cameraFeeds[0].streamUrl; }
-    if (currentUser?.role !== 'admin' && cameraFeeds.length && byId('cameraUrl').value) connectCamera();
+    // Keep camera preview manual so the URL entered by the user is always used.
     if (currentUser?.role === 'admin') for (const cam of cameraFeeds) { const line = document.createElement('div'); line.className = 'alert'; line.innerHTML = `<span>${escapeHtml(cam.name)} · ${escapeHtml(cam.status)}</span><button class="btn" data-archive-camera="${cam.id}">Archive</button>`; select.appendChild(line); }
     select?.querySelectorAll('[data-archive-camera]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/cameras/${button.dataset.archiveCamera}/archive`, { method: 'PATCH' }); loadCameras(); loadStats(); }));
   } catch (error) { showAuthError(error.message); }
 }
-async function refreshSharedCameraUrl() {
-  try {
-    const cameras = await api('/api/cameras');
-    const camera = cameras.find((item) => Number(item.id) === Number(window.activeCameraId)) || cameras[0];
-    if (!camera) return;
-    const input = byId('cameraUrl');
-    if (input.value !== camera.streamUrl) {
-      input.value = camera.streamUrl;
-      window.activeCameraId = Number(camera.id);
-      window.dispatchEvent(new Event('camera:url-updated'));
-    }
-  } catch { /* Keep the last saved URL if the API is temporarily unavailable. */ }
-}
+window.addEventListener('camera:saved', loadCameras);
 async function loadAnnouncements() {
   try { const items = await api('/api/announcements'); byId('announcementsList').innerHTML = items.length ? items.map((item) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body)}</p><span class="sub">${escapeHtml(item.author || 'Barangay office')} · ${escapeHtml(formatDate(item.publishedAt))}</span></div>${currentUser.role === 'admin' ? `<button class="btn" data-hide-announcement="${item.id}">Hide</button>` : ''}</div>`).join('') : '<div class="empty">No announcements posted.</div>'; byId('announcementsList').querySelectorAll('[data-hide-announcement]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/announcements/${button.dataset.hideAnnouncement}/archive`, { method: 'PATCH' }); loadAnnouncements(); })); }
   catch (error) { byId('announcementsList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
@@ -289,7 +331,7 @@ function renderCalendarEvents() {
   const nextDay = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const dayEvents = calendarEvents.filter((event) => new Date(String(event.startsAt).replace(' ', 'T')) < nextDay && new Date(String(event.endsAt).replace(' ', 'T')) >= dayStart);
   byId('calendarSelectedDate').textContent = dayStart.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  byId('calendarDayEvents').innerHTML = dayEvents.length ? dayEvents.map((event) => `<article class="calendar-event-card"><div class="calendar-event-card-top"><strong>${escapeHtml(event.title)}</strong>${currentUser?.role === 'admin' && event.createdByRole === 'captain' ? `<button type="button" class="btn" data-edit-calendar-event="${Number(event.id)}">Edit</button>` : ''}</div><p>${escapeHtml(event.details || 'No additional details.')}</p><span class="sub">${escapeHtml(new Date(String(event.startsAt).replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} – ${escapeHtml(new Date(String(event.endsAt).replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}${event.location ? ` · ${escapeHtml(event.location)}` : ''}</span><span class="sub calendar-event-author">Added by Capt. ${escapeHtml(event.creatorName || 'Barangay Captain')}</span></article>`).join('') : '<div class="empty">No events scheduled for this day.</div>';
+  byId('calendarDayEvents').innerHTML = dayEvents.length ? dayEvents.map((event) => `<article class="calendar-event-card"><div class="calendar-event-card-top"><strong>${escapeHtml(event.title)}</strong>${(currentUser?.role === 'admin' || (currentUser?.role === 'captain' && String(event.createdBy) === String(currentUser.id))) && event.createdByRole === 'captain' ? `<button type="button" class="btn" data-edit-calendar-event="${Number(event.id)}">Edit</button>` : ''}</div><p>${escapeHtml(event.details || 'No additional details.')}</p><span class="sub">${escapeHtml(new Date(String(event.startsAt).replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} – ${escapeHtml(new Date(String(event.endsAt).replace(' ', 'T')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}${event.location ? ` · ${escapeHtml(event.location)}` : ''}</span><span class="sub calendar-event-author">Added by Capt. ${escapeHtml(event.creatorName || 'Barangay Captain')}</span></article>`).join('') : '<div class="empty">No events scheduled for this day.</div>';
   byId('calendarDayEvents').querySelectorAll('[data-edit-calendar-event]').forEach((button) => button.addEventListener('click', () => openCalendarEventForm(calendarEvents.find((event) => Number(event.id) === Number(button.dataset.editCalendarEvent)))));
 }
 async function loadCalendarEvents() {
@@ -298,8 +340,9 @@ async function loadCalendarEvents() {
     calendarEvents = await api(`/api/events?month=${month}`);
     renderCalendarEvents();
   } catch (error) {
-    byId('calendarDayEvents').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
-    byId('eventsCalendarGrid').innerHTML = '';
+    calendarEvents = [];
+    renderCalendarEvents();
+    byId('calendarDayEvents').innerHTML = `<div class="empty" role="alert">Calendar is available, but events could not be loaded: ${escapeHtml(error.message)}</div>`;
   }
 }
 function openCalendarEventForm(event = null) {
@@ -377,7 +420,7 @@ byId('enableTaskNotificationsBtn').addEventListener('click', async () => {
 async function loadUsers() {
   try {
     const users = await api('/api/users');
-    byId('userRows').innerHTML = users.map((user) => `<tr><td>${escapeHtml(user.fullName)}</td><td>${escapeHtml(user.username)}</td><td><select data-role-user="${user.id}" class="form-control"><option value="tanod" ${user.role === 'tanod' ? 'selected' : ''}>Tanod</option><option value="captain" ${user.role === 'captain' ? 'selected' : ''}>Captain</option><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option></select></td></tr>`).join('');
+    byId('userRows').innerHTML = users.map((user) => `<tr><td>${escapeHtml(user.fullName)}</td><td>${escapeHtml(user.username)}</td><td><select data-role-user="${user.id}" class="form-control"><option value="tanod" ${user.role === 'tanod' ? 'selected' : ''}>Tanod</option><option value="captain" ${user.role === 'captain' ? 'selected' : ''}>Captain</option></select></td></tr>`).join('');
     byId('taskAssignee').innerHTML = users.filter((u) => u.role === 'tanod').map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join('');
     byId('userRows').querySelectorAll('[data-role-user]').forEach((select) => select.addEventListener('change', async () => { await api(`/api/users/${select.dataset.roleUser}/role`, { method: 'PATCH', body: JSON.stringify({ role: select.value }) }); }));
   } catch (error) { showAuthError(error.message); }
@@ -398,6 +441,12 @@ async function loadRegistrationRequests() {
     }));
   } catch (error) { showAuthError(error.message); }
 }
+byId('refreshAccountRequestsBtn')?.addEventListener('click', async () => {
+  const button = byId('refreshAccountRequestsBtn');
+  button.disabled = true;
+  try { await Promise.all([loadRegistrationRequests(), loadUsers()]); }
+  finally { button.disabled = false; }
+});
 async function loadTanods() {
   try { const users = await api('/api/tanods'); byId('taskAssignee').innerHTML = users.map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join(''); }
   catch (error) { showAuthError(error.message); }

@@ -4,3 +4,26 @@
 !.env.example
 
 /storage/recordings/
+/ESP32/secrets.h
+
+node_modules/
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+
+dist/
+build/
+
+uploads/
+temp/
+*.log
+
+.DS_Store
+Thumbs.db
+
+# Docker data
+docker-data/
+volumes/

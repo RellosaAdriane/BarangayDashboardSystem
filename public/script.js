@@ -5,7 +5,6 @@ let connected = false;
 let cameraLoadTimer = null;
 let cameraFirstFrameTimer = null;
 let cameraAttempt = 0;
-
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -36,7 +35,7 @@ function renderIncidents() {
     rows.innerHTML = incidents.map(i => {
       const date = formatDate(i.date || i.createdAt);
       const status = i.status || 'Active';
-      return `<tr><td>${escapeHtml(i.id || 'INC')}</td><td>${escapeHtml(i.type || i.eventType || 'Incident')}</td><td>${escapeHtml(i.camera || 'ESP32-CAM 01')}</td><td>${escapeHtml(date)}</td><td><span class="tag ${status === 'Active' ? 'red' : 'green'}">${escapeHtml(status)}</span> ${window.currentRole === 'admin' ? `<button class="btn" data-archive-incident="${escapeHtml(i.dbId || i.id)}">Archive</button>` : ''}</td></tr>`;
+      return `<tr><td>${escapeHtml(i.id || 'INC')}</td><td>${escapeHtml(i.type || i.eventType || 'Incident')}</td><td>${escapeHtml(i.camera || 'ESP32-CAM 01')}</td><td>${escapeHtml(date)}</td><td><span class="tag ${status === 'Active' ? 'red' : 'green'}">${escapeHtml(status)}</span> ${i.hasSnapshot ? `<a class="btn" href="${API_BASE}/incidents/${Number(i.dbId)}/snapshot" target="_blank" rel="noopener">Snapshot</a>` : ''} ${window.currentRole === 'admin' ? `<button class="btn" data-archive-incident="${escapeHtml(i.dbId || i.id)}">Archive</button>` : ''}</td></tr>`;
     }).join('');
     list.innerHTML = incidents.slice(0, 6).map(i => {
       const status = i.status || 'Active';
@@ -78,12 +77,29 @@ async function createIncident(type, note) {
   }
   renderIncidents();
 }
-function connectCamera() {
+function isPrivateCameraHost(hostname) {
+  const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return true;
+  const octets = host.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return octets[0] === 10 || (octets[0] === 192 && octets[1] === 168) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 169 && octets[1] === 254);
+}
+function showCameraUnavailable(url) {
+  $('cameraPlaceholder').style.display = 'flex';
+  $('cameraPlaceholder').innerHTML = '<div class="cam-icon">!</div><strong>Camera feed unavailable</strong><span>Check the camera IP and connection, then try again.</span>';
+  $('cameraStatus').textContent = 'Status: Camera feed unavailable';
+}
+async function connectCamera() {
   // Keep the dashboard in one viewing mode at a time. The server-side recorder
   // continues independently while the preview shows the ESP32-CAM stream.
   stopRecordingPlayback();
   const url = $('cameraUrl').value.trim();
-  if (!url) { $('cameraStatus').textContent = 'Status: Enter the ESP32-CAM stream URL first'; return; }
+  if (!url) {
+    $('cameraStatus').textContent = window.currentRole === 'admin'
+      ? 'Status: Enter the ESP32-CAM stream URL first'
+      : 'Status: No shared camera is saved yet. Ask an admin to save the camera URL.';
+    return;
+  }
   try {
     const parsedUrl = new URL(url);
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Invalid protocol');
@@ -129,16 +145,50 @@ function connectCamera() {
     img.style.display = 'none';
     $('cameraPlaceholder').style.display = 'flex';
     $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>ESP32-CAM feed did not reach the dashboard</strong><span>Check that the camera stream URL is reachable from this browser.</span>';
-    $('cameraStatus').textContent = 'Status: ESP32-CAM feed unavailable';
+    showCameraUnavailable(url);
     $('liveTag').style.display = 'none';
     updateStats();
     window.dispatchEvent(new Event('camera:disconnected'));
   };
   // Load the camera's MJPEG stream directly in the browser.
-  const useSharedProxy = window.currentRole !== 'admin' && window.activeCameraId;
-  const streamUrl = useSharedProxy
-    ? new URL(`${API_BASE}/cameras/${window.activeCameraId}/stream`, window.location.href)
-    : new URL(url);
+  let streamUrl;
+  try {
+    const directUrl = new URL(url);
+    const needsSecureRelay = window.location.protocol === 'https:' && window.activeCameraId;
+    if (needsSecureRelay) {
+      const relayResponse = await fetch(`${API_BASE}/cameras/${window.activeCameraId}/relay-url`, { credentials: 'same-origin', cache: 'no-store' });
+      const relay = await relayResponse.json().catch(() => ({}));
+      if (!relayResponse.ok || !relay.url) throw new Error(relay.error || 'Secure camera relay is unavailable.');
+      streamUrl = new URL(relay.url);
+      $('cameraStatus').textContent = 'Status: Connecting through the secure camera relay';
+    } else if (isPrivateCameraHost(directUrl.hostname)) {
+      // Local HTTP pages can load the camera directly over the same Wi-Fi.
+      streamUrl = directUrl;
+      $('cameraStatus').textContent = 'Status: Connecting directly to the local camera';
+    } else if (window.activeCameraId) {
+      const relayResponse = await fetch(`${API_BASE}/cameras/${window.activeCameraId}/relay-url`, { credentials: 'same-origin', cache: 'no-store' });
+      const relay = await relayResponse.json().catch(() => ({}));
+      if (!relayResponse.ok || !relay.url) throw new Error(relay.error || 'Secure camera relay is unavailable.');
+      streamUrl = new URL(relay.url);
+    } else {
+      streamUrl = directUrl;
+    }
+  } catch (error) {
+    if (attempt !== cameraAttempt) return;
+    const directUrl = new URL(url);
+    if (isPrivateCameraHost(directUrl.hostname) && window.location.protocol !== 'https:') {
+      // Private ESP32-CAM addresses are reachable directly by devices on the
+      // same Wi-Fi/LAN when no remote relay has been configured.
+      streamUrl = directUrl;
+      $('cameraStatus').textContent = 'Status: Connecting directly on this Wi-Fi network';
+    } else {
+      $('cameraStatus').textContent = `Status: ${error.message}`;
+      $('cameraPlaceholder').style.display = 'flex';
+      $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>Secure camera relay unavailable</strong><span>Configure the HTTPS camera relay to view this feed from the Vercel dashboard.</span>';
+      return;
+    }
+  }
+  if (attempt !== cameraAttempt) return;
   streamUrl.searchParams.set('_t', Date.now());
   img.src = streamUrl.toString();
   cameraFirstFrameTimer = setTimeout(() => {
@@ -149,7 +199,7 @@ function connectCamera() {
     img.style.display = 'none';
     $('cameraPlaceholder').style.display = 'flex';
     $('cameraPlaceholder').innerHTML = '<div class="cam-icon">⚠</div><strong>No camera frame received</strong><span>Check that the ESP32-CAM stream URL is reachable from this browser.</span>';
-    $('cameraStatus').textContent = 'Status: No camera frame received after 35 seconds';
+    showCameraUnavailable(url);
     $('liveTag').style.display = 'none';
   }, 35000);
   const loadTimer = setInterval(() => {
@@ -163,17 +213,27 @@ function connectCamera() {
   cameraLoadTimer = loadTimer;
 }
 
+async function saveSharedCameraUrl() {
+  const streamUrl = $('cameraUrl').value.trim();
+  if (!streamUrl) throw new Error('Enter the ESP32-CAM stream URL first.');
+  const response = await fetch(`${API_BASE}/camera-stream`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ streamUrl, cameraId: window.activeCameraId || null })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Could not save camera URL.');
+  window.activeCameraId = Number(result.id);
+  $('cameraUrl').value = result.streamUrl;
+  window.dispatchEvent(new Event('camera:saved'));
+}
+$('cameraUrl').addEventListener('input', () => { window.activeCameraId = null; });
 $('connectBtn').addEventListener('click', connectCamera);
 window.addEventListener('camera:url-updated', connectCamera);
 $('saveUrlBtn').addEventListener('click', async () => {
-  const url = $('cameraUrl').value.trim();
-  if (!url) return;
   try {
-    const response = await fetch(`${API_BASE}/camera-stream`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ streamUrl: url, cameraId: window.activeCameraId || null }) });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || 'Could not save camera URL');
-    window.activeCameraId = Number(result.id);
-    $('cameraUrl').value = result.streamUrl;
+    await saveSharedCameraUrl();
   } catch (error) { $('cameraStatus').textContent = `Status: ${error.message}`; return; }
   connectCamera();
 });
@@ -391,3 +451,5 @@ $('recordingArchiveWrap').addEventListener('click', (event) => {
 setInterval(refreshRecorderStatus, 15000);
 setDate();
 loadIncidents();
+// Refresh incident history periodically for updates from signed-in users.
+setInterval(loadIncidents, 10000);

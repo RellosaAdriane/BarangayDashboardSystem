@@ -1,10 +1,7 @@
 
 #include "esp_camera.h"
 #include <WiFi.h>
-
-// Your Wi-Fi credentials
-const char* ssid = "Hidden_2.5";
-const char* password = "HideandSeek2";
+#include "secrets.h"
 
 // AI Thinker ESP32-CAM pin configuration
 #define PWDN_GPIO_NUM     32

@@ -1,85 +1,65 @@
-# BarangayPOB-3A Dashboard
+# Barangay Dashboard
 
-## MySQL database for XAMPP
+Barangay dashboard application using Supabase PostgreSQL and Storage, with the Express app hosted on Vercel.
 
-The import file is [`database/barangay_dashboard.sql`](database/barangay_dashboard.sql). It creates the `barangay_dashboard` database and tables for users/roles, cameras, incident reports/history, dashboard announcements, assigned tasks, and audit logs.
+## Supabase setup
 
-To import it:
+1. In the Supabase SQL Editor, run `database/barangaywatch_supabase_schema.sql` to create the application tables.
+2. Run [`database/supabase_runtime_tables.sql`](database/supabase_runtime_tables.sql) before deploying. It creates the calendar and camera-recording metadata tables used by the app.
+3. Create private Storage buckets named `task-proofs` and `camera-evidence`.
+4. Copy the PostgreSQL connection string from **Project Settings → Database**. For Vercel, use Supabase's transaction pooler connection string where available.
 
-1. Start **MySQL** in the XAMPP Control Panel.
-2. Open `http://localhost/phpmyadmin`.
-3. Select **Import**, choose `database/barangay_dashboard.sql`, then click **Import** at the bottom.
-4. Confirm that `barangay_dashboard` appears in the left sidebar.
+The supplied schema enables row level security without client policies. The dashboard connects from its server using `DATABASE_URL`; browser clients must not receive database credentials or the service role key.
 
-If you imported the original database file before account approval was added, import [`database/registration_approval_migration.sql`](database/registration_approval_migration.sql) once as well. This adds the approval fields while keeping existing user accounts approved.
+## Vercel setup
 
-If you imported the database before profile fields were added, import [`database/user_profile_migration.sql`](database/user_profile_migration.sql) once. New first-admin setup and registration ask for first name, last name, gender, and date of birth.
+Configure these Production and Preview environment variables:
 
-If your database was created before camera recordings were added, import [`database/camera_recordings_migration.sql`](database/camera_recordings_migration.sql) once through phpMyAdmin's **Import** tab. Existing recording tables receive the archive timestamp field from this migration.
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Supabase PostgreSQL connection string |
+| `DATABASE_SSL` | `true` |
+| `DB_POOL_MAX` | `5` |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; keep it server-only |
+| `SESSION_SECRET` | Random secret of at least 32 characters; keep it stable across redeploys for each environment |
+| `CAMERA_RELAY_BASE_URL` | Public HTTPS URL for the camera relay, such as `https://stream.example.com` |
+| `CAMERA_RELAY_SECRET` | Same private random secret configured on the relay |
 
-For a database that already has those profile fields, import [`database/middle_name_migration.sql`](database/middle_name_migration.sql) once to add the optional middle name field.
+Deploy the project. The Express app trusts Vercel's HTTPS proxy so secure session cookies persist in the browser. The first user can complete initial admin setup from the landing page. New accounts request Tanod or Barangay Captain access and appear in Account management for admin review.
 
-The SQL file creates an empty database. It does not insert a preset user or password. Passwords must be stored as secure hashes by the application; do not insert a plain-text password into `users.password_hash`.
+## Local development
 
-For an existing database, import [`database/calendar_events_migration.sql`](database/calendar_events_migration.sql) once to add the shared events calendar.
+1. Copy `.env.example` to `.env` and fill in the Supabase values.
+2. Install packages and start the app:
 
-For an existing database, import [`database/task_duty_migration.sql`](database/task_duty_migration.sql) once to add required duty start and end times to assigned tasks.
-
-For an existing database, import [`database/task_proof_migration.sql`](database/task_proof_migration.sql) once to let Tanods submit completion descriptions and pictures for captain/admin approval. Proof pictures are saved under `storage/task-proofs` and served only to the assigned Tanod and captain/admin reviewers.
-
-## Role permissions
-
-- **Tanod:** view camera feeds, read incident history, announcements, and shared calendar events, and view assigned tasks.
-- **Barangay Captain:** view feeds, submit reports, assign Tanod duties with a work description and scheduled start/end time, and create shared calendar events.
-- **Admin:** configure camera URLs, manage/archive records, view camera totals and online status, assign user roles, and edit captain-created calendar events.
-
-`users.role` uses `tanod`, `captain`, or `admin`. Camera availability is represented by `cameras.last_status`; archived records stay in the database and can be filtered from the public dashboard.
-
-## Configure and run
-
-1. Add the settings from `.env.example` to your existing `.env` (or copy the example if you do not have one), then set the MySQL details to match XAMPP. A default XAMPP install commonly uses `root` with an empty password; use the credentials configured on your computer.
-2. Set `SESSION_SECRET` to a long random value.
-3. Install dependencies and start the app:
-
-```bash
-npm install
-npm start
-```
-
-4. Open `http://localhost:3000`. The public landing page has **Log in** and **Create account** actions. If there is no approved admin yet, the first account flow creates the administrator (password must be 8–16 characters).
-5. Other users can request Tanod or Barangay Captain access from **Create account**. Their accounts stay pending and cannot log in until an admin approves them. Admins can approve or decline requests from the **Account requests** panel.
-6. Use the Admin panel to add cameras and create accounts directly when needed.
-
-The public landing page does not expose dashboard data. Approved users must log in before dashboard APIs are available. A declined username remains reserved in the account table; an admin should contact the applicant if a correction and resubmission are needed.
-
-The app now stores accounts and operational records in MySQL and checks roles on the server:
-
-- **Tanod:** view feeds, read incident history and announcements, and update assigned task status.
-- **Barangay Captain:** all Tanod viewing, submit incident reports, publish announcements, and assign tasks.
-- **Admin:** all features, configure/archive cameras, archive incidents, view counts, create accounts, and change roles.
-
-The camera online total reflects a feed that the dashboard has successfully loaded. Camera stream URLs must be reachable by the browser on the user's network. For real use, serve the app over HTTPS and use a persistent session store instead of the development memory store.
-
-See the [system context diagram](docs/context-diagram.md) for the dashboard's connections to users, the ESP32-CAM, MySQL, FFmpeg, and recording storage.
-
-## Past camera footage playback
-
-The server records every enabled, unarchived camera as five-minute H.264 MP4 clips. This requires FFmpeg on the Node.js server. FFmpeg reads the ESP32-CAM MJPEG stream directly.
-
-1. Install FFmpeg on the computer running Node.js. In a new terminal, run `ffmpeg -version` to confirm it is available. If it is not on `PATH`, set `FFMPEG_PATH` in `.env` to its executable, for example `C:/ffmpeg/bin/ffmpeg.exe` on Windows.
-2. For an existing database, import `database/camera_recordings_migration.sql` once. Fresh installs get the table from `database/barangay_dashboard.sql`.
-3. Add these settings to `.env` (they are also in `.env.example`):
-
-   ```dotenv
-   FFMPEG_PATH=ffmpeg
-   RECORDINGS_DIR=./storage/recordings
-   RECORDING_SEGMENT_SECONDS=300
+   ```sh
+   npm install
+   npm start
    ```
 
-   Segment duration can be set from 60 to 900 seconds. The recordings directory contains the MP4 files; keep it on a disk with enough free space and include it in your backup plan.
-4. Restart the Node.js app. It starts a recorder for each enabled camera and retries when a stream disconnects. Save a reachable ESP32-CAM MJPEG stream URL (for example, `http://192.168.1.6:81/stream`) in Admin camera settings. Recording starts automatically and new clips appear after each segment closes; the live dashboard preview can remain open at the same time.
-5. Open **Recorded Footage** in the camera dashboard. Choose a camera and a from/to date and time, select **Search clips**, then select **Play**. All signed-in dashboard roles can view recordings.
+3. Open `http://localhost:3000`.
 
-The recorder converts the camera stream to H.264 at 10 frames per second and approximately 500 kbit/s to keep clips broadly playable. At that bitrate, budget roughly 225 MB per camera per hour; actual usage varies with the scene. Clips are stored on the Node.js host, not on the ESP32-CAM, and the stream must be reachable from that host. Admins can archive clips and restore them for up to one year. The server automatically deletes archived clips after one year, checking at startup and then daily. Keep the dashboard on a trusted network because footage may contain identifiable people.
+## Camera notes
+
+The ESP32-CAM stream is on the camera's private network. For remote viewing, configure an authenticated HTTPS relay on an always-on host that can reach the camera. Do not expose the camera's raw stream port to the public internet. Configure `CAMERA_RELAY_BASE_URL` and the matching `CAMERA_RELAY_SECRET` in Vercel.
+
+## Existing features
+
+- **Tanod:** view camera feeds, incident history, announcements, calendar events, and assigned duties; submit task completion proof.
+- **Barangay Captain:** view feeds, submit incident reports, publish announcements, assign Tanod duties, create calendar events, and review task proof.
+- **Admin:** manage cameras and accounts, approve registration requests, archive records, and edit captain-created calendar events.
+
+Passwords are hashed with bcrypt. Login and role checks run on the server.
 
 
+Download CompreFace_1.2.0.zip archive or run:
+wget -q -O tmp.zip 'https://github.com/exadel-inc/CompreFace/releases/download/v1.2.0/CompreFace_1.2.0.zip' && unzip tmp.zip && rm tmp.zip
+To start CompreFace run:
+docker-compose up -d
+Open in your browser: http://localhost:8000/login
+To stop properly run:
+docker-compose stop
+To start again run:
+docker-compose start
+More detailed install guide(and Windows instructions) is on our readme﻿ page.
