@@ -34,15 +34,29 @@ export function applyDashboardLayout(user, dashboard) {
   byId('taskForm').hidden = !dashboard.canAssignTasks;
   byId('createCalendarEventBtn').hidden = user.role !== 'captain';
   const nav = byId('mainNav');
-  nav.innerHTML = dashboard.navigation
+  // Keep the daily monitoring workflow first for every role; administration
+  // tools naturally follow after operations rather than appearing shuffled.
+  const navRank = {
+    '#camera': 1,
+    '#pastFootagePanel': 2,
+    '#alerts': 3,
+    '#eventsPanel': 4,
+    '#tasksPanel': 5,
+    '#recordingHistoryPanel': 6,
+    '#cameraAdminPanel': 7,
+    '#faceManagementPanel': 8,
+    '#userAdminPanel': 9
+  };
+  const navigation = [...dashboard.navigation].sort((a, b) => (navRank[a[2]] || 99) - (navRank[b[2]] || 99));
+  nav.innerHTML = navigation
     .map(([icon, label, href], index) => `<a class="${index === 0 ? 'active' : ''}" href="${href}"><span class="ico">${icon}</span>${label}</a>`)
     .join('');
   let useDashboardDefault = Boolean(dashboard.defaultRoute);
   const renderRoute = () => {
-    const defaultRoute = dashboard.defaultRoute || dashboard.navigation[0][2];
+    const defaultRoute = dashboard.defaultRoute || navigation[0][2];
     let route = useDashboardDefault ? defaultRoute : window.location.hash || defaultRoute;
     useDashboardDefault = false;
-    const allowedRoute = dashboard.navigation.some(([, , href]) => href === route);
+    const allowedRoute = navigation.some(([, , href]) => href === route);
     const routePanel = byId(route.slice(1));
     if (!window.location.hash || !allowedRoute || !routePanel || routePanel.hidden) {
       route = defaultRoute;
