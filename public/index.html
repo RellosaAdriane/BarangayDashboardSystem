@@ -6,6 +6,7 @@
   <title>BarangayPOB-3A | Monitoring Dashboard</title>
   <link rel="stylesheet" href="/style.css?v=20261112-multi-camera">
   <link rel="stylesheet" href="/recordings.css?v=20261114-playback-ui">
+  <link rel="stylesheet" href="/dashboard-theme.css?v=20261114-blue-green">
   <style>
     .content.single-route .panel#pastFootagePanel.route-selected{max-width:1440px}
     #pastFootagePanel .recording-player-dialog{width:100%;max-width:none;max-height:none;margin:0;overflow:visible}
@@ -148,7 +149,7 @@
                 <button type="submit" class="btn primary">Load recordings</button>
               </form>
               <div class="recording-history-actions"><p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p></div>
-              <div class="recording-technical-list"><div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div></div>
+              <div class="recording-technical-list"><div class="table-wrap recording-table-scroll"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div></div>
               <div id="deviceCameraTools" hidden>
                 <h4>Camera upload access</h4><p class="sub">Generate a token for your camera firmware. A new token replaces the previous one. Copy it before clearing or leaving this page.</p>
                 <label for="deviceCameraSelect">Camera</label><select id="deviceCameraSelect" class="form-control"></select>
