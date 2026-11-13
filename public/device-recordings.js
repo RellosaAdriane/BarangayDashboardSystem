@@ -19,22 +19,48 @@
     const date = new Date(provider === 'r2' && !/[Zz]|[+-]\d\d:\d\d$/.test(text) ? `${text}Z` : text);
     return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
   };
+  const duration = (seconds) => `${Number(seconds || 0).toFixed(Number(seconds || 0) % 1 ? 1 : 0)} s`;
+  function renderCurrentRecording(item) {
+    $('recordingCurrentCamera').textContent = item?.cameraName || '—';
+    $('recordingCurrentStarted').textContent = item ? timestamp(item.startedAt, item.storageProvider) : '—';
+    $('recordingCurrentDuration').textContent = item ? duration(item.durationSeconds) : '—';
+    $('recordingPlayerSubtitle').textContent = item ? `${item.cameraName} · ${timestamp(item.startedAt, item.storageProvider)}` : 'Review recorded camera footage';
+  }
+  function renderReplayList() {
+    const list = $('recordingReplayList');
+    list.replaceChildren();
+    $('recordingReplayCount').textContent = `${replayQueue.length} ${replayQueue.length === 1 ? 'clip' : 'clips'}`;
+    if (!replayQueue.length) { list.textContent = 'No recordings loaded.'; return; }
+    replayQueue.forEach((item, index) => {
+      const itemButton = document.createElement('button');
+      itemButton.type = 'button'; itemButton.className = 'recording-replay-item';
+      itemButton.setAttribute('role', 'listitem'); itemButton.setAttribute('aria-current', index === replayIndex ? 'true' : 'false');
+      const time = document.createElement('strong'); time.textContent = timestamp(item.startedAt, item.storageProvider);
+      const meta = document.createElement('span'); meta.textContent = `${item.cameraName} · ${duration(item.durationSeconds)}`;
+      const action = document.createElement('span'); action.className = 'recording-replay-action'; action.textContent = index === replayIndex ? 'Playing' : 'Play';
+      itemButton.append(time, meta, action);
+      itemButton.addEventListener('click', () => void openReplayAt(index, true));
+      list.append(itemButton);
+    });
+  }
   function renderReplay() {
     const enabled = replayQueue.length > 1 && replayIndex >= 0;
     $('recordingReplayMeta').hidden = !enabled;
-    if (!enabled) return;
     const item = replayQueue[replayIndex];
-    $('recordingReplayPosition').textContent = `Clip ${replayIndex + 1} of ${replayQueue.length}`;
-    $('recordingReplayDetails').textContent = `${item.cameraName} · ${timestamp(item.startedAt, item.storageProvider)}`;
-    $('previousRecording').disabled = replayIndex === 0;
-    $('nextRecording').disabled = replayIndex === replayQueue.length - 1;
+    if (enabled) {
+      $('recordingReplayPosition').textContent = `Clip ${replayIndex + 1} of ${replayQueue.length}`;
+      $('recordingReplayDetails').textContent = `${item.cameraName} · ${timestamp(item.startedAt, item.storageProvider)}`;
+      $('previousRecording').disabled = replayIndex === 0;
+      $('nextRecording').disabled = replayIndex === replayQueue.length - 1;
+    }
+    renderCurrentRecording(item); renderReplayList();
   }
   function reset(clearReplay = false) {
     generation++; playing = false; cancelAnimationFrame(animation); abort?.abort(); abort = null;
     video.pause(); video.removeAttribute('src'); video.load(); clip = null; position = 0; lastFrame = -1; busy = false;
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     play.textContent = 'Play'; seek.value = 0;
-    if (clearReplay) { replayQueue = []; replayIndex = -1; replayAuto = false; }
+    if (clearReplay) { replayQueue = []; replayIndex = -1; replayAuto = false; renderCurrentRecording(null); renderReplayList(); }
     renderReplay();
   }
   async function drawFrame(index) {
@@ -96,7 +122,7 @@
   async function openRecording(id, autoPlay = false) {
     if (dialog.open) { dialog.dataset.replayTransition = '1'; dialog.close(); }
     reset(); dialog.showModal(); status.textContent = 'Loading recording…';
-    canvas.hidden = true; video.hidden = true; $('aviRecordingControls').hidden = true;
+    canvas.hidden = true; video.hidden = true; $('aviRecordingControls').hidden = true; $('recordingEmptyState').hidden = false;
     const version = generation;
     abort = new AbortController();
     try {
@@ -104,7 +130,7 @@
       if (version !== generation) return;
       $('recordingDownload').href = `/api/recordings/${id}/video`;
       if (source.format === 'video') {
-        video.hidden = false; video.src = source.url; status.textContent = '';
+        video.hidden = false; $('recordingEmptyState').hidden = true; video.src = source.url; status.textContent = '';
         if (autoPlay) await video.play().catch(() => { replayAuto = false; status.textContent = 'Press play to start this clip.'; });
         return;
       }
@@ -112,7 +138,7 @@
       const loaded = await MjpegAvi.readClip(await fetch(source.url, { signal: abort.signal, credentials: 'omit' }));
       if (version !== generation) return;
       clip = loaded; canvas.width = clip.width; canvas.height = clip.height;
-      canvas.hidden = false; $('aviRecordingControls').hidden = false;
+      canvas.hidden = false; $('recordingEmptyState').hidden = true; $('aviRecordingControls').hidden = false;
       seek.max = clip.duration; seek.step = clip.frameSeconds;
       status.textContent = 'Camera recording · No audio';
       $('aviRecordingTime').textContent = `0.0 / ${clip.duration.toFixed(1)} s`;
@@ -142,6 +168,10 @@
       const clips = await api(`/api/recordings?${query}`);
       historyClips = clips;
       $('replayRecordings').disabled = clips.length === 0;
+      if (clips.length) {
+        replayQueue = [...clips].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+        replayIndex = -1; renderReplayList();
+      } else { replayQueue = []; renderReplayList(); }
       for (const item of clips) {
         const row = rows.insertRow();
         cell(row, item.cameraName); cell(row, timestamp(item.startedAt, item.storageProvider));
