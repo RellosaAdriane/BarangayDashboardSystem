@@ -8,7 +8,10 @@
   <link rel="stylesheet" href="/recordings.css?v=20261114-playback-ui">
   <style>
     .content.single-route .panel#recordingHistoryPanel.route-selected{max-width:1440px}
-    #recordingHistoryPanel .recording-player-dialog{width:100%;max-width:none;margin:18px 0 0}
+    #recordingHistoryPanel .recording-player-dialog{width:100%;max-width:none;max-height:none;margin:18px 0 0;overflow:visible}
+    #recordingHistoryPanel .recording-player-shell{align-items:start}
+    #recordingHistoryPanel .recording-playlist{align-self:stretch}
+    #recordingHistoryPanel .recording-replay-list{max-height:680px}
     .recording-technical-list{margin-top:16px;border:1px solid var(--line);border-radius:9px;background:#fff}
     .recording-technical-list summary{padding:12px 14px;color:var(--text);font-size:12px;font-weight:700;cursor:pointer}
     .recording-technical-list .table-wrap{border-top:1px solid var(--line)}
