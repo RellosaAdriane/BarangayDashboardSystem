@@ -5,6 +5,7 @@
   const canvas = $('aviRecordingCanvas'), video = $('standardRecordingVideo');
   const seek = $('aviRecordingSeek'), play = $('aviRecordingPlay'), status = $('recordingPlayerStatus');
   let clip, playing = false, animation = 0, position = 0, origin = 0, lastFrame = -1, busy = false, generation = 0, abort;
+  let historyClips = [], replayQueue = [], replayIndex = -1, replayAuto = false;
   const cell = (row, value) => { const td = row.insertCell(); td.textContent = value; return td; };
   async function api(url, options) {
     const response = await fetch(url, options);
@@ -18,11 +19,23 @@
     const date = new Date(provider === 'r2' && !/[Zz]|[+-]\d\d:\d\d$/.test(text) ? `${text}Z` : text);
     return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
   };
-  function reset() {
+  function renderReplay() {
+    const enabled = replayQueue.length > 1 && replayIndex >= 0;
+    $('recordingReplayMeta').hidden = !enabled;
+    if (!enabled) return;
+    const item = replayQueue[replayIndex];
+    $('recordingReplayPosition').textContent = `Clip ${replayIndex + 1} of ${replayQueue.length}`;
+    $('recordingReplayDetails').textContent = `${item.cameraName} · ${timestamp(item.startedAt, item.storageProvider)}`;
+    $('previousRecording').disabled = replayIndex === 0;
+    $('nextRecording').disabled = replayIndex === replayQueue.length - 1;
+  }
+  function reset(clearReplay = false) {
     generation++; playing = false; cancelAnimationFrame(animation); abort?.abort(); abort = null;
     video.pause(); video.removeAttribute('src'); video.load(); clip = null; position = 0; lastFrame = -1; busy = false;
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     play.textContent = 'Play'; seek.value = 0;
+    if (clearReplay) { replayQueue = []; replayIndex = -1; replayAuto = false; }
+    renderReplay();
   }
   async function drawFrame(index) {
     if (!clip || index === lastFrame || busy) return;
@@ -45,13 +58,23 @@
     seek.value = position;
     $('aviRecordingTime').textContent = `${position.toFixed(1)} / ${clip.duration.toFixed(1)} s`;
     void drawFrame(Math.min(clip.frames.length - 1, Math.floor(position / clip.frameSeconds)));
-    if (position >= clip.duration) { playing = false; play.textContent = 'Play'; return; }
+    if (position >= clip.duration) {
+      playing = false; play.textContent = 'Play';
+      if (replayAuto && replayIndex < replayQueue.length - 1) void openReplayAt(replayIndex + 1, true);
+      return;
+    }
+    animation = requestAnimationFrame(tick);
+  }
+  function resumeAviPlayback() {
+    if (!clip) return;
+    if (position >= clip.duration) position = 0;
+    playing = true; play.textContent = 'Pause'; origin = performance.now() - position * 1000;
     animation = requestAnimationFrame(tick);
   }
   play.addEventListener('click', () => {
     if (!clip) return;
     playing = !playing; play.textContent = playing ? 'Pause' : 'Play';
-    if (playing) { if (position >= clip.duration) position = 0; origin = performance.now() - position * 1000; animation = requestAnimationFrame(tick); }
+    if (playing) resumeAviPlayback();
     else cancelAnimationFrame(animation);
   });
   seek.addEventListener('input', () => {
@@ -60,7 +83,18 @@
     $('aviRecordingTime').textContent = `${position.toFixed(1)} / ${clip.duration.toFixed(1)} s`;
     void drawFrame(Math.min(clip.frames.length - 1, Math.floor(position / clip.frameSeconds)));
   });
-  async function openRecording(id) {
+  async function openReplayAt(index, autoPlay) {
+    if (index < 0 || index >= replayQueue.length) return;
+    replayIndex = index; replayAuto = autoPlay; renderReplay();
+    await openRecording(replayQueue[index].id, autoPlay);
+  }
+  async function startReplay(items, selectedId = null) {
+    replayQueue = [...items].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+    replayIndex = selectedId === null ? 0 : Math.max(0, replayQueue.findIndex((item) => String(item.id) === String(selectedId)));
+    await openReplayAt(replayIndex, true);
+  }
+  async function openRecording(id, autoPlay = false) {
+    if (dialog.open) { dialog.dataset.replayTransition = '1'; dialog.close(); }
     reset(); dialog.showModal(); status.textContent = 'Loading recording…';
     canvas.hidden = true; video.hidden = true; $('aviRecordingControls').hidden = true;
     const version = generation;
@@ -69,7 +103,11 @@
       const source = await api(`/api/recordings/${id}/source`, { signal: abort.signal });
       if (version !== generation) return;
       $('recordingDownload').href = `/api/recordings/${id}/video`;
-      if (source.format === 'video') { video.hidden = false; video.src = source.url; status.textContent = ''; return; }
+      if (source.format === 'video') {
+        video.hidden = false; video.src = source.url; status.textContent = '';
+        if (autoPlay) await video.play().catch(() => { replayAuto = false; status.textContent = 'Press play to start this clip.'; });
+        return;
+      }
       status.textContent = 'Downloading clip for playback…';
       const loaded = await MjpegAvi.readClip(await fetch(source.url, { signal: abort.signal, credentials: 'omit' }));
       if (version !== generation) return;
@@ -79,10 +117,17 @@
       status.textContent = 'Camera recording · No audio';
       $('aviRecordingTime').textContent = `0.0 / ${clip.duration.toFixed(1)} s`;
       await drawFrame(0);
+      if (autoPlay) resumeAviPlayback();
     } catch (error) { if (version === generation && error.name !== 'AbortError') status.textContent = error.message; }
   }
   $('closeRecordingPlayer').addEventListener('click', () => dialog.close());
-  dialog.addEventListener('close', reset);
+  $('previousRecording').addEventListener('click', () => void openReplayAt(replayIndex - 1, false));
+  $('nextRecording').addEventListener('click', () => void openReplayAt(replayIndex + 1, false));
+  video.addEventListener('ended', () => { if (replayAuto && replayIndex < replayQueue.length - 1) void openReplayAt(replayIndex + 1, true); });
+  dialog.addEventListener('close', () => {
+    if (dialog.dataset.replayTransition) { delete dialog.dataset.replayTransition; return; }
+    reset(true);
+  });
   let loading = false;
   async function history() {
     if (!window.currentRole || loading) return;
@@ -95,21 +140,24 @@
       if ($('recordingFrom').value) query.set('from', $('recordingFrom').value);
       if ($('recordingTo').value) query.set('to', $('recordingTo').value);
       const clips = await api(`/api/recordings?${query}`);
+      historyClips = clips;
+      $('replayRecordings').disabled = clips.length === 0;
       for (const item of clips) {
         const row = rows.insertRow();
         cell(row, item.cameraName); cell(row, timestamp(item.startedAt, item.storageProvider));
         cell(row, `${item.durationSeconds} s`); cell(row, `${(Number(item.fileSizeBytes) / 1048576).toFixed(1)} MB`);
-        const actions = cell(row, ''); actions.append(button('Play', () => void openRecording(item.id)));
+        const actions = cell(row, ''); actions.append(button('Play', () => void startReplay(historyClips, item.id)));
         if (window.currentRole === 'admin') actions.append(button('Archive', async () => {
           try { await api(`/api/recordings/${item.id}/archive`, { method: 'PATCH' }); await history(); }
           catch (error) { $('recordingHistoryStatus').textContent = error.message; }
         }));
       }
       $('recordingHistoryStatus').textContent = clips.length ? `${clips.length} recordings (latest 500). Date filters use Philippine time.` : 'No uploaded recordings found.';
-    } catch (error) { $('recordingHistoryStatus').textContent = error.message; }
+    } catch (error) { historyClips = []; $('replayRecordings').disabled = true; $('recordingHistoryStatus').textContent = error.message; }
     finally { loading = false; }
   }
   $('recordingHistoryForm').addEventListener('submit', (event) => { event.preventDefault(); void history(); });
+  $('replayRecordings').addEventListener('click', () => void startReplay(historyClips));
   $('clearDeviceToken').addEventListener('click', () => { $('deviceTokenResult').textContent = ''; });
   $('createDeviceToken').addEventListener('click', async () => {
     const id = $('deviceCameraSelect').value;

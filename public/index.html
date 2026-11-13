@@ -134,7 +134,7 @@
                 <label>To (Philippine time)<input id="recordingTo" class="form-control" type="datetime-local"></label>
                 <button type="submit" class="btn primary">Load recordings</button>
               </form>
-              <p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p>
+              <div class="recording-history-actions"><p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p><button id="replayRecordings" type="button" class="btn" disabled>Replay footage</button></div>
               <div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th><th>Actions</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div>
               <div id="deviceCameraTools" hidden>
                 <h4>Camera upload access</h4><p class="sub">Generate a token for your camera firmware. A new token replaces the previous one. Copy it before clearing or leaving this page.</p>
@@ -192,6 +192,7 @@
 <dialog id="recordingPlayerDialog" class="snapshot-preview" aria-labelledby="recordingPlayerTitle">
   <header class="snapshot-preview-header"><h2 id="recordingPlayerTitle">Recorded footage</h2><button id="closeRecordingPlayer" type="button" class="btn">Close</button></header>
   <div class="panel-body"><p id="recordingPlayerStatus" role="status"></p>
+    <div id="recordingReplayMeta" class="recording-replay-meta" hidden><span id="recordingReplayPosition"></span><span id="recordingReplayDetails"></span><div><button id="previousRecording" type="button" class="btn">Previous</button><button id="nextRecording" type="button" class="btn">Next</button></div></div>
     <canvas id="aviRecordingCanvas" class="recording-playback" hidden></canvas>
     <video id="standardRecordingVideo" class="recording-playback" controls playsinline hidden></video>
     <div id="aviRecordingControls" hidden><button id="aviRecordingPlay" type="button" class="btn">Play</button><input id="aviRecordingSeek" type="range" min="0" max="60" step="0.2" value="0" aria-label="Recording position"><span id="aviRecordingTime"></span></div>
