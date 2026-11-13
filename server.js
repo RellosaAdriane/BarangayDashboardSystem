@@ -14,7 +14,7 @@ const multer = require('multer');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-if (process.env.VERCEL) app.set('trust proxy', 1);
+if (process.env.VERCEL || process.env.RENDER) app.set('trust proxy', 1);
 if ((process.env.VERCEL || process.env.NODE_ENV === 'production') && !process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET must be set in production.');
 }

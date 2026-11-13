@@ -53,6 +53,12 @@ Configure these Production and Preview environment variables:
 
 Deploy the project. The Express app trusts Vercel's HTTPS proxy so secure session cookies persist in the browser. The first user can complete initial admin setup from the landing page. New accounts request Tanod or Barangay Captain access and appear in Account management for admin review.
 
+## Render setup
+
+The root `render.yaml` deploys the full dashboard as a Node web service. Push the project, including `scripts/` and `database/`, to GitHub, then create a Render Blueprint from this repository. Supply the Supabase environment values when prompted. The Blueprint generates a session secret, installs dependencies, generates runtime schemas, starts the root `server.js`, and checks `/api/health` for database connectivity. The app trusts Render's HTTPS proxy so secure login cookies work.
+
+For an existing Render web service, use the repository root, build command `npm ci && npm run generate:schemas`, and start command `npm start`. Set `NODE_ENV=production`, `NODE_VERSION=24`, the Supabase/database variables listed above, and a stable `SESSION_SECRET`. If you use an HTTPS camera relay, also set `CAMERA_RELAY_BASE_URL` and `CAMERA_RELAY_SECRET`. The cloud camera gateway is a separate service and is not deployed by this Blueprint.
+
 ## Local development
 
 1. Copy `.env.example` to `.env` and fill in the Supabase values.
