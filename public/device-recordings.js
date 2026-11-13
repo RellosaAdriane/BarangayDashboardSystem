@@ -37,7 +37,7 @@
       itemButton.setAttribute('role', 'listitem'); itemButton.setAttribute('aria-current', index === replayIndex ? 'true' : 'false');
       const time = document.createElement('strong'); time.textContent = timestamp(item.startedAt, item.storageProvider);
       const meta = document.createElement('span'); meta.textContent = `${item.cameraName} · ${duration(item.durationSeconds)}`;
-      const action = document.createElement('span'); action.className = 'recording-replay-action'; action.textContent = index === replayIndex ? 'Playing' : 'Play';
+      const action = document.createElement('span'); action.className = 'recording-replay-action'; action.textContent = index === replayIndex ? 'Current' : 'View';
       itemButton.append(time, meta, action);
       itemButton.addEventListener('click', () => void openReplayAt(index, true));
       list.append(itemButton);
@@ -120,8 +120,7 @@
     await openReplayAt(replayIndex, true);
   }
   async function openRecording(id, autoPlay = false) {
-    if (dialog.open) { dialog.dataset.replayTransition = '1'; dialog.close(); }
-    reset(); dialog.showModal(); status.textContent = 'Loading recording…';
+    reset(); dialog.hidden = false; status.textContent = 'Loading recording…';
     canvas.hidden = true; video.hidden = true; $('aviRecordingControls').hidden = true; $('recordingEmptyState').hidden = false;
     const version = generation;
     abort = new AbortController();
@@ -146,14 +145,9 @@
       if (autoPlay) resumeAviPlayback();
     } catch (error) { if (version === generation && error.name !== 'AbortError') status.textContent = error.message; }
   }
-  $('closeRecordingPlayer').addEventListener('click', () => dialog.close());
   $('previousRecording').addEventListener('click', () => void openReplayAt(replayIndex - 1, false));
   $('nextRecording').addEventListener('click', () => void openReplayAt(replayIndex + 1, false));
   video.addEventListener('ended', () => { if (replayAuto && replayIndex < replayQueue.length - 1) void openReplayAt(replayIndex + 1, true); });
-  dialog.addEventListener('close', () => {
-    if (dialog.dataset.replayTransition) { delete dialog.dataset.replayTransition; return; }
-    reset(true);
-  });
   let loading = false;
   async function history() {
     if (!window.currentRole || loading) return;
@@ -175,14 +169,16 @@
       for (const item of clips) {
         const row = rows.insertRow();
         cell(row, item.cameraName); cell(row, timestamp(item.startedAt, item.storageProvider));
-        cell(row, `${item.durationSeconds} s`); cell(row, `${(Number(item.fileSizeBytes) / 1048576).toFixed(1)} MB`);
-        const actions = cell(row, ''); actions.append(button('Play', () => void startReplay(historyClips, item.id)));
-        if (window.currentRole === 'admin') actions.append(button('Archive', async () => {
+        cell(row, `${item.durationSeconds} s`); const size = cell(row, `${(Number(item.fileSizeBytes) / 1048576).toFixed(1)} MB`);
+        if (window.currentRole === 'admin') {
+          size.append(button('Archive', async () => {
           try { await api(`/api/recordings/${item.id}/archive`, { method: 'PATCH' }); await history(); }
           catch (error) { $('recordingHistoryStatus').textContent = error.message; }
-        }));
+          }));
+        }
       }
       $('recordingHistoryStatus').textContent = clips.length ? `${clips.length} recordings (latest 500). Date filters use Philippine time.` : 'No uploaded recordings found.';
+      if (clips.length) await openReplayAt(replayQueue.length - 1, true);
     } catch (error) { historyClips = []; $('replayRecordings').disabled = true; $('recordingHistoryStatus').textContent = error.message; }
     finally { loading = false; }
   }
@@ -210,9 +206,9 @@
     }
     $('deviceCameraTools').hidden = window.currentRole !== 'admin';
   });
-  window.addEventListener('hashchange', () => { if (location.hash === '#recordingHistoryPanel') void history(); else if (dialog.open) dialog.close(); });
+  window.addEventListener('hashchange', () => { if (location.hash === '#recordingHistoryPanel') void history(); else if (!dialog.hidden) { dialog.hidden = true; reset(true); } });
   // Clear the one-time token and release video memory when a user signs out.
   new MutationObserver(() => {
-    if ($('app').hidden || getComputedStyle($('app')).display === 'none') { $('deviceTokenResult').textContent = ''; if (dialog.open) dialog.close(); }
+    if ($('app').hidden || getComputedStyle($('app')).display === 'none') { $('deviceTokenResult').textContent = ''; if (!dialog.hidden) { dialog.hidden = true; reset(true); } }
   }).observe($('app'), { attributes: true, attributeFilter: ['hidden', 'style'] });
 })();

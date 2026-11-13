@@ -9,9 +9,10 @@ const fixture = require('./helpers/avi-fixture');
 (async () => {
   const app = express();
   const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-  const history = html.match(/<section class="panel" id="recordingHistoryPanel">[\s\S]*?<\/section>/)[0];
-  const player = html.match(/<dialog id="recordingPlayerDialog"[\s\S]*?<\/dialog>/)[0];
-  app.get('/', (_req, res) => res.send(`<div id="app">${history}</div>${player}<script>window.currentRole='admin';</script><script src="/mjpeg-avi.js"></script><script src="/device-recordings.js"></script>`));
+  const historyStart = html.indexOf('<section class="panel" id="recordingHistoryPanel">');
+  const historyEnd = html.indexOf('<section class="panel" id="faceManagementPanel"', historyStart);
+  const history = html.slice(historyStart, historyEnd);
+  app.get('/', (_req, res) => res.send(`<div id="app">${history}</div><script>window.currentRole='admin';</script><script src="/mjpeg-avi.js"></script><script src="/device-recordings.js"></script>`));
   app.get('/api/recordings', (_req, res) => res.json([
     { id: '2', cameraName: 'Test camera', startedAt: '2026-11-14T00:00:02Z', durationSeconds: 2, fileSizeBytes: fixture(10).length, storageProvider: 'r2' },
     { id: '1', cameraName: 'Test camera', startedAt: '2026-11-14T00:00:00Z', durationSeconds: 2, fileSizeBytes: fixture(10).length, storageProvider: 'r2' }
@@ -30,7 +31,6 @@ const fixture = require('./helpers/avi-fixture');
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('cameras:updated', { detail: [{ id: 1, name: 'Test camera' }] })));
     await page.getByRole('button', { name: 'Load recordings' }).click();
-    await page.locator('#deviceRecordingRows').getByRole('button', { name: 'Play', exact: true }).click();
     await page.waitForFunction(() => document.getElementById('recordingPlayerStatus').textContent.includes('No audio'));
     await page.waitForFunction(() => document.getElementById('recordingReplayPosition').textContent === 'Clip 2 of 2');
     await page.waitForFunction(() => {
@@ -41,19 +41,16 @@ const fixture = require('./helpers/avi-fixture');
     await page.locator('#aviRecordingPlay').click();
     await page.locator('#aviRecordingSeek').evaluate((element) => { element.value = '1.6'; element.dispatchEvent(new Event('input')); });
     assert.match(await page.locator('#aviRecordingTime').textContent(), /1.6/);
-    await page.locator('#closeRecordingPlayer').click();
-    assert.equal(await page.locator('#recordingPlayerDialog').evaluate((element) => element.open), false);
     await page.locator('#replayRecordings').click();
     await page.waitForFunction(() => document.getElementById('recordingPlayerStatus').textContent.includes('No audio'));
     await page.waitForFunction(() => document.getElementById('recordingReplayPosition').textContent === 'Clip 1 of 2');
     await page.waitForFunction(() => document.getElementById('recordingReplayPosition').textContent === 'Clip 2 of 2', null, { timeout: 8000 });
-    await page.keyboard.press('Escape');
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#createDeviceToken').click();
     await page.waitForFunction(() => document.getElementById('deviceTokenResult').textContent === 'one-time-test-token');
     await page.evaluate(() => { document.getElementById('app').hidden = true; });
     await page.waitForFunction(() => document.getElementById('deviceTokenResult').textContent === '');
     assert.deepEqual(errors, []);
-    console.log('PASS: real JPEG playback, sequential replay, controls, close/reopen, and token cleanup in Edge.');
+    console.log('PASS: inline real JPEG playback, sequential replay, controls, and token cleanup in Edge.');
   } finally { await browser?.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

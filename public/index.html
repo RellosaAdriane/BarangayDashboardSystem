@@ -135,7 +135,21 @@
                 <button type="submit" class="btn primary">Load recordings</button>
               </form>
               <div class="recording-history-actions"><p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p><button id="replayRecordings" type="button" class="btn" disabled>Replay footage</button></div>
-              <div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th><th>Actions</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div>
+              <section id="recordingPlayerDialog" class="recording-player-dialog" aria-labelledby="recordingPlayerTitle" hidden>
+                <header class="recording-player-header"><div><p class="recording-eyebrow">CAMERA PLAYBACK</p><h2 id="recordingPlayerTitle">Camera playback</h2><p id="recordingPlayerSubtitle">Review recorded camera footage</p></div></header>
+                <div class="recording-player-shell">
+                  <section class="recording-player-main" aria-label="Selected recording">
+                    <p id="recordingPlayerStatus" class="recording-player-status" role="status" aria-live="polite"></p>
+                    <div class="recording-video-stage"><canvas id="aviRecordingCanvas" class="recording-playback" hidden></canvas><video id="standardRecordingVideo" class="recording-playback" controls playsinline hidden></video><p id="recordingEmptyState" class="recording-empty-state">Select a recording to begin playback.</p></div>
+                    <div id="aviRecordingControls" class="avi-recording-controls" hidden><button id="aviRecordingPlay" type="button" class="btn primary">Play</button><input id="aviRecordingSeek" type="range" min="0" max="60" step="0.2" value="0" aria-label="Recording position"><span id="aviRecordingTime" aria-live="off"></span></div>
+                    <div id="recordingReplayMeta" class="recording-replay-meta" hidden><span id="recordingReplayPosition"></span><span id="recordingReplayDetails"></span><div><button id="previousRecording" type="button" class="btn">Previous</button><button id="nextRecording" type="button" class="btn">Next</button></div></div>
+                    <div class="recording-facts" aria-label="Selected recording details"><div><span>Camera</span><strong id="recordingCurrentCamera">—</strong></div><div><span>Start time</span><strong id="recordingCurrentStarted">—</strong></div><div><span>Duration</span><strong id="recordingCurrentDuration">—</strong></div></div>
+                    <a id="recordingDownload" class="btn recording-download" target="_blank" rel="noopener">Download original</a>
+                  </section>
+                  <aside class="recording-playlist" aria-label="Available recordings"><div class="recording-playlist-head"><div><span>AVAILABLE RECORDINGS</span><strong>Replay queue</strong></div><span id="recordingReplayCount">0 clips</span></div><div id="recordingReplayList" class="recording-replay-list" role="list"></div></aside>
+                </div>
+              </section>
+              <div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div>
               <div id="deviceCameraTools" hidden>
                 <h4>Camera upload access</h4><p class="sub">Generate a token for your camera firmware. A new token replaces the previous one. Copy it before clearing or leaving this page.</p>
                 <label for="deviceCameraSelect">Camera</label><select id="deviceCameraSelect" class="form-control"></select>
@@ -188,24 +202,6 @@
     <div class="approval-actions"><button class="btn primary" id="saveResetAccountPasswordBtn" type="submit">Reset Password</button><button class="btn" id="cancelResetAccountPasswordBtn" type="button">Cancel</button></div>
     <p id="resetAccountPasswordStatus" class="sub" role="status" aria-live="polite"></p>
   </form>
-</dialog>
-<dialog id="recordingPlayerDialog" class="snapshot-preview recording-player-dialog" aria-labelledby="recordingPlayerTitle">
-  <header class="snapshot-preview-header recording-player-header"><div><p class="recording-eyebrow">CAMERA PLAYBACK</p><h2 id="recordingPlayerTitle">Camera playback</h2><p id="recordingPlayerSubtitle">Review recorded camera footage</p></div><button id="closeRecordingPlayer" type="button" class="btn">Close</button></header>
-  <div class="recording-player-shell">
-    <section class="recording-player-main" aria-label="Selected recording">
-      <p id="recordingPlayerStatus" class="recording-player-status" role="status" aria-live="polite"></p>
-      <div class="recording-video-stage">
-        <canvas id="aviRecordingCanvas" class="recording-playback" hidden></canvas>
-        <video id="standardRecordingVideo" class="recording-playback" controls playsinline hidden></video>
-        <p id="recordingEmptyState" class="recording-empty-state">Select a recording to begin playback.</p>
-      </div>
-      <div id="aviRecordingControls" class="avi-recording-controls" hidden><button id="aviRecordingPlay" type="button" class="btn primary">Play</button><input id="aviRecordingSeek" type="range" min="0" max="60" step="0.2" value="0" aria-label="Recording position"><span id="aviRecordingTime" aria-live="off"></span></div>
-      <div id="recordingReplayMeta" class="recording-replay-meta" hidden><span id="recordingReplayPosition"></span><span id="recordingReplayDetails"></span><div><button id="previousRecording" type="button" class="btn">Previous</button><button id="nextRecording" type="button" class="btn">Next</button></div></div>
-      <div class="recording-facts" aria-label="Selected recording details"><div><span>Camera</span><strong id="recordingCurrentCamera">—</strong></div><div><span>Start time</span><strong id="recordingCurrentStarted">—</strong></div><div><span>Duration</span><strong id="recordingCurrentDuration">—</strong></div></div>
-      <a id="recordingDownload" class="btn recording-download" target="_blank" rel="noopener">Download original</a>
-    </section>
-    <aside class="recording-playlist" aria-label="Available recordings"><div class="recording-playlist-head"><div><span>AVAILABLE RECORDINGS</span><strong>Replay queue</strong></div><span id="recordingReplayCount">0 clips</span></div><div id="recordingReplayList" class="recording-replay-list" role="list"></div></aside>
-  </div>
 </dialog>
 <script src="/mjpeg-avi.js?v=20261114"></script>
 <script src="/device-recordings.js?v=20261114-playback-ui"></script>
