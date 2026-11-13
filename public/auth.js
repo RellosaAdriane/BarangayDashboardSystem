@@ -16,6 +16,58 @@ async function api(path, options = {}) {
   return data;
 }
 function showAuthError(message) { byId('authError').textContent = message; }
+const firstUseTranslations = {
+  fil: {
+    close: 'Isara ang gabay', help: 'Buksan ulit ang tutorial', welcome: 'WELCOME SA BARANGAYPOB-3A',
+    title: 'Mabilis na gabay sa camera at alerts', intro: 'Buksan ang <strong>Live camera feed</strong> at <strong>Alerts</strong> mula sa menu.',
+    step1: '<strong>Manood ng live:</strong> Buksan ang Live camera feed at pindutin ang <strong>Connect Camera</strong>. Pindutin ang Full para palakihin ang view.',
+    step2: '<strong>Palakihin ang view:</strong> Pindutin ang Full sa live camera feed.',
+    step3: '<strong>Tingnan ang alerts:</strong> Buksan ang Alerts para makita ang camera status at mga snapshot.', done: 'Sige, simulan na'
+  },
+  en: {
+    close: 'Close guide', help: 'Open the tutorial again', welcome: 'WELCOME TO BARANGAYPOB-3A',
+    title: 'Quick guide to cameras and alerts', intro: 'Open <strong>Live camera feed</strong> and <strong>Alerts</strong> from the menu.',
+    step1: '<strong>Watch live:</strong> Open Live camera feed and press <strong>Connect Camera</strong>. Press Full to enlarge the view.',
+    step2: '<strong>Enlarge the view:</strong> Press Full on the live camera feed.',
+    step3: '<strong>Check alerts:</strong> Open Alerts to see camera status updates and snapshots.', done: 'Got it, let’s start'
+  },
+  ceb: {
+    close: 'Sirad-i ang giya', help: 'Ablihi pag-usab ang tutorial', welcome: 'WELCOME SA BARANGAYPOB-3A',
+    title: 'Mubo nga giya sa camera ug alerts', intro: 'Ablihi ang <strong>Live camera feed</strong> ug <strong>Alerts</strong> gikan sa menu.',
+    step1: '<strong>Motan-aw og live:</strong> Ablihi ang Live camera feed ug pindota ang <strong>Connect Camera</strong>. Pindota ang Full aron palapdon ang hulagway.',
+    step2: '<strong>Padak-a ang hulagway:</strong> Pindota ang Full sa live camera feed.',
+    step3: '<strong>Tan-awa ang alerts:</strong> Ablihi ang Alerts aron makita ang camera status ug mga snapshot.', done: 'Sige, sugdan na'
+  }
+};
+function applyFirstUseLanguage(language) {
+  const copy = firstUseTranslations[language] || firstUseTranslations.fil;
+  byId('closeFirstUseGuide').setAttribute('aria-label', copy.close);
+  byId('openFirstUseGuide').setAttribute('aria-label', copy.help);
+  byId('openFirstUseGuide').title = copy.help;
+  byId('firstUseKicker').textContent = copy.welcome;
+  byId('firstUseTitle').textContent = copy.title;
+  byId('firstUseDescription').innerHTML = copy.intro;
+  byId('firstUseStep1').innerHTML = copy.step1;
+  byId('firstUseStep2').innerHTML = copy.step2;
+  byId('firstUseStep3').innerHTML = copy.step3;
+  byId('dismissFirstUseGuide').textContent = copy.done;
+}
+function showFirstUseGuide(user, reopen = false) {
+  const key = `barangay-dashboard:first-use-guide:${user.id}`;
+  try { if (!reopen && localStorage.getItem(key)) return; } catch { /* Show the guide if browser storage is unavailable. */ }
+  let language = 'fil';
+  try { language = localStorage.getItem(`barangay-dashboard:tutorial-language:${user.id}`) || 'fil'; } catch { /* Filipino is the default when browser storage is unavailable. */ }
+  byId('firstUseLanguage').value = firstUseTranslations[language] ? language : 'fil';
+  applyFirstUseLanguage(byId('firstUseLanguage').value);
+  const close = () => {
+    byId('firstUseGuide').hidden = true;
+    try { localStorage.setItem(key, 'seen'); } catch { /* The guide may reappear if browser storage is unavailable. */ }
+  };
+  byId('closeFirstUseGuide').onclick = close;
+  byId('dismissFirstUseGuide').onclick = close;
+  byId('firstUseGuide').hidden = false;
+  byId('dismissFirstUseGuide').focus();
+}
 function clearRequiredError(input) {
   input.removeAttribute('aria-invalid');
   input.requiredErrorElement?.remove();
@@ -83,14 +135,20 @@ async function setRoleUI(user) {
   byId('settingsUsername').textContent = user.username;
   byId('settingsRole').textContent = ({ tanod: 'Tanod', captain: 'Barangay Captain', admin: 'Admin' })[user.role];
   const [{ default: dashboard }, { applyDashboardLayout }] = await Promise.all([
-    import(`/dashboards/${user.role}.js`),
-    import('/dashboards/layout.js')
+    import(`/dashboards/${user.role}.js?v=20261112-face-management`),
+    import('/dashboards/layout.js?v=20261112-tanod-reports-only')
   ]);
   applyDashboardLayout(user, dashboard);
+  window.ReportNotifications.start();
+  window.FaceManagement.invalidate();
+  if (dashboard.isAdmin) void window.FaceManagement.loadPeople();
+  showFirstUseGuide(user);
   const canAssignTasks = dashboard.canAssignTasks;
-    loadIncidents(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
+    loadAlerts(); loadAnnouncements(); loadTasks(); loadCalendarEvents(); loadStats(); loadCameras();
     if (window.taskRefreshTimer) clearInterval(window.taskRefreshTimer);
     window.taskRefreshTimer = setInterval(loadTasks, 30000);
+    if (window.cameraRefreshTimer) clearInterval(window.cameraRefreshTimer);
+    window.cameraRefreshTimer = setInterval(() => loadCameras(true), 20000);
   if (dashboard.isAdmin) { loadUsers(); loadRegistrationRequests(); } else if (canAssignTasks) loadTanods();
 }
 function openAuth(mode = 'login') {
@@ -120,7 +178,7 @@ function openAuth(mode = 'login') {
   byId('authSubmit').hidden = false;
   byId('authSwitch').hidden = mode !== 'register';
   byId('loginPassword').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-  byId('loginPassword').minLength = ['setup', 'register'].includes(mode) ? 8 : -1;
+  byId('loginPassword').minLength = ['setup', 'register'].includes(mode) ? 8 : 0;
   byId('loginPassword').maxLength = ['setup', 'register'].includes(mode) ? 16 : 128;
   byId('loginUsername').required = true;
   byId('loginPassword').required = true;
@@ -188,22 +246,17 @@ byId('authForm').addEventListener('submit', async (event) => {
       ? { firstName: byId('registerFirstName').value.trim(), middleName: byId('registerMiddleName').value.trim(), lastName: byId('registerLastName').value.trim(), gender: byId('registerGender').value, dateOfBirth: byId('registerDob').value, username: byId('loginUsername').value.trim(), password: byId('loginPassword').value, requestedRole: byId('registerRole').value }
       : { username: byId('loginUsername').value.trim(), password: byId('loginPassword').value };
   try {
-    const route = authMode === 'setup' ? '/api/auth/setup' : authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const submittedMode = authMode;
+    const route = submittedMode === 'setup' ? '/api/auth/setup' : submittedMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const result = await api(route, { method: 'POST', body: JSON.stringify(payload) });
-    if (authMode === 'register') {
-      byId('authHeading').textContent = 'Request submitted';
+    if (submittedMode === 'register') {
+      byId('authForm').reset();
+      openAuth('login');
+      const loginUrl = new URL(window.location.href);
+      loginUrl.searchParams.set('auth', 'login');
+      history.replaceState(null, '', loginUrl);
       byId('authMessage').textContent = result.message;
-      byId('loginUsername').value = '';
-      byId('loginPassword').value = '';
-      byId('confirmPassword').value = '';
-      byId('setupConfirmPassword').value = '';
-      byId('registerFirstName').value = '';
-      byId('registerLastName').value = '';
-      byId('registerFields').hidden = true;
-      byId('credentialFields').hidden = true;
-      byId('authSubmit').hidden = true;
-      byId('authSwitch').hidden = false;
-      byId('authSwitch').innerHTML = 'Already have an account? <a id="switchToLogin" href="/?auth=login">Go to login</a>';
+      byId('loginUsername').focus();
       return;
     }
     await setRoleUI(result.user);
@@ -250,7 +303,7 @@ document.addEventListener('keydown', (event) => {
     byId('settingsCover').hidden = true;
   }
 });
-byId('logoutBtn').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); location.reload(); });
+byId('logoutBtn').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); location.assign('/?auth=login'); });
 byId('settingsPasswordForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -280,9 +333,12 @@ async function loadStats() {
   try { const stats = await api('/api/stats'); byId('totalCams').textContent = stats.cameras; byId('onlineCams').textContent = stats.online; byId('activeCount').textContent = stats.active; byId('todayCount').textContent = stats.today; }
   catch (error) { showAuthError(error.message); }
 }
-async function loadCameras() {
+window.refreshAlertStats = loadStats;
+async function loadCameras(statusCheckOnly = false) {
   try {
     cameraFeeds = await api('/api/cameras');
+    window.dispatchEvent(new CustomEvent('cameras:updated', { detail: cameraFeeds }));
+    if (statusCheckOnly) return;
     const selectedCamera = cameraFeeds.find((camera) => Number(camera.id) === Number(window.activeCameraId)) || cameraFeeds[0];
     if (selectedCamera) {
       window.activeCameraId = Number(selectedCamera.id);
@@ -290,19 +346,14 @@ async function loadCameras() {
     } else {
       window.activeCameraId = null;
     }
-    const recordingCameraFilter = byId('recordingCameraFilter');
-    if (recordingCameraFilter) recordingCameraFilter.innerHTML = '<option value="">All cameras</option>' + cameraFeeds.map((camera) => `<option value="${Number(camera.id)}">${escapeHtml(camera.name)}</option>`).join('');
-    window.loadRecordedFootage?.();
-    window.refreshRecorderStatus?.();
     const select = byId('cameraList');
     if (select) select.innerHTML = cameraFeeds.length ? cameraFeeds.map((cam) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(cam.name)}</strong><p>${escapeHtml(cam.location || 'No location')} · ${escapeHtml(cam.status)}</p></div><button class="btn" data-camera-id="${cam.id}" data-camera-url="${escapeHtml(cam.streamUrl)}">View</button></div>`).join('') : '<div class="empty">No cameras configured.</div>';
-    select?.querySelectorAll('[data-camera-id]').forEach((button) => button.addEventListener('click', () => { window.activeCameraId = Number(button.dataset.cameraId); byId('cameraUrl').value = button.dataset.cameraUrl; connectCamera(); }));
-    // Keep camera preview manual so the URL entered by the user is always used.
+    select?.querySelectorAll('[data-camera-id]').forEach((button) => button.addEventListener('click', () => window.CameraGrid.focus(button.dataset.cameraId)));
     if (currentUser?.role === 'admin') for (const cam of cameraFeeds) { const line = document.createElement('div'); line.className = 'alert'; line.innerHTML = `<span>${escapeHtml(cam.name)} · ${escapeHtml(cam.status)}</span><button class="btn" data-archive-camera="${cam.id}">Archive</button>`; select.appendChild(line); }
     select?.querySelectorAll('[data-archive-camera]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/cameras/${button.dataset.archiveCamera}/archive`, { method: 'PATCH' }); loadCameras(); loadStats(); }));
   } catch (error) { showAuthError(error.message); }
 }
-window.addEventListener('camera:saved', loadCameras);
+window.addEventListener('camera:saved', () => loadCameras());
 async function loadAnnouncements() {
   try { const items = await api('/api/announcements'); byId('announcementsList').innerHTML = items.length ? items.map((item) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body)}</p><span class="sub">${escapeHtml(item.author || 'Barangay office')} · ${escapeHtml(formatDate(item.publishedAt))}</span></div>${currentUser.role === 'admin' ? `<button class="btn" data-hide-announcement="${item.id}">Hide</button>` : ''}</div>`).join('') : '<div class="empty">No announcements posted.</div>'; byId('announcementsList').querySelectorAll('[data-hide-announcement]').forEach((button) => button.addEventListener('click', async () => { await api(`/api/announcements/${button.dataset.hideAnnouncement}/archive`, { method: 'PATCH' }); loadAnnouncements(); })); }
   catch (error) { byId('announcementsList').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
@@ -420,9 +471,13 @@ byId('enableTaskNotificationsBtn').addEventListener('click', async () => {
 async function loadUsers() {
   try {
     const users = await api('/api/users');
-    byId('userRows').innerHTML = users.map((user) => `<tr><td>${escapeHtml(user.fullName)}</td><td>${escapeHtml(user.username)}</td><td><select data-role-user="${user.id}" class="form-control"><option value="tanod" ${user.role === 'tanod' ? 'selected' : ''}>Tanod</option><option value="captain" ${user.role === 'captain' ? 'selected' : ''}>Captain</option></select></td></tr>`).join('');
+    byId('userRows').innerHTML = users.length ? users.map((user) => `<tr><td>${escapeHtml(user.fullName)}</td><td>${escapeHtml(user.username)}</td><td><select data-role-user="${user.id}" class="form-control"><option value="tanod" ${user.role === 'tanod' ? 'selected' : ''}>Tanod</option><option value="captain" ${user.role === 'captain' ? 'selected' : ''}>Captain</option></select></td><td><button class="btn" type="button" data-reset-password-user="${user.id}">Reset Password</button></td></tr>`).join('') : '<tr><td colspan="4" class="empty">No approved Tanod or Captain accounts.</td></tr>';
     byId('taskAssignee').innerHTML = users.filter((u) => u.role === 'tanod').map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join('');
     byId('userRows').querySelectorAll('[data-role-user]').forEach((select) => select.addEventListener('change', async () => { await api(`/api/users/${select.dataset.roleUser}/role`, { method: 'PATCH', body: JSON.stringify({ role: select.value }) }); }));
+    byId('userRows').querySelectorAll('[data-reset-password-user]').forEach((button) => button.addEventListener('click', () => {
+      const user = users.find((item) => String(item.id) === button.dataset.resetPasswordUser);
+      if (user) window.AccountPasswords.open(user);
+    }));
   } catch (error) { showAuthError(error.message); }
 }
 async function loadRegistrationRequests() {
@@ -451,7 +506,7 @@ async function loadTanods() {
   try { const users = await api('/api/tanods'); byId('taskAssignee').innerHTML = users.map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join(''); }
   catch (error) { showAuthError(error.message); }
 }
-byId('addCameraBtn').addEventListener('click', async () => { try { await api('/api/cameras', { method: 'POST', body: JSON.stringify({ name: byId('newCameraName').value.trim(), streamUrl: byId('newCameraUrl').value.trim(), location: byId('newCameraLocation').value.trim() }) }); byId('newCameraName').value = ''; byId('newCameraUrl').value = ''; byId('newCameraLocation').value = ''; loadCameras(); loadStats(); } catch (error) { alert(error.message); } });
+byId('addCameraBtn').addEventListener('click', async () => { try { await api('/api/cameras', { method: 'POST', body: JSON.stringify({ name: byId('newCameraName').value.trim(), streamUrl: byId('newCameraUrl').value.trim(), location: byId('newCameraLocation').value.trim() }) }); byId('newCameraName').value = ''; byId('newCameraUrl').value = ''; byId('newCameraLocation').value = ''; await loadCameras(); loadStats(); } catch (error) { alert(error.message); } });
 byId('publishAnnouncementBtn').addEventListener('click', async () => { try { await api('/api/announcements', { method: 'POST', body: JSON.stringify({ title: byId('announcementTitle').value.trim(), body: byId('announcementBody').value.trim() }) }); byId('announcementTitle').value = ''; byId('announcementBody').value = ''; loadAnnouncements(); } catch (error) { alert(error.message); } });
 byId('taskForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -464,4 +519,11 @@ byId('taskForm').addEventListener('submit', async (event) => {
   } catch (error) { status.textContent = error.message; }
 });
 checkAuth();
+byId('openFirstUseGuide').addEventListener('click', () => { if (currentUser) showFirstUseGuide(currentUser, true); });
+byId('firstUseLanguage').addEventListener('change', (event) => {
+  applyFirstUseLanguage(event.target.value);
+  if (currentUser) {
+    try { localStorage.setItem(`barangay-dashboard:tutorial-language:${currentUser.id}`, event.target.value); } catch { /* Keep the selected language for this popup session. */ }
+  }
+});
 window.addEventListener('camera:status', loadStats);

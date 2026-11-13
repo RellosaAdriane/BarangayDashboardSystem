@@ -1,0 +1,11 @@
+.git/
+.vercel/
+node_modules/
+.env
+.env.*
+recordings/
+storage/
+ESP32/
+tests/
+docs/
+*.log

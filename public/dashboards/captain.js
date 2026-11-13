@@ -1,17 +1,15 @@
 export default {
   roleName: 'Barangay Captain',
   navHeading: 'OPERATIONS MENU',
-  description: 'Operations view for incident reports, announcements, and team assignments.',
-  canReport: true,
+  description: 'Operations view for snapshot reviews, announcements, and team assignments.',
+  canReport: false,
   canPublish: true,
   canAssignTasks: true,
   isAdmin: false,
   defaultRoute: '#camera',
   navigation: [
-    ['+', 'Report incident', '#quickIncidentPanel'],
-    ['▣', 'Live cameras', '#camera'],
-    ['\u25b6', 'Past footage', '#recordedFootage'],
-    ['▤', 'Incidents', '#incidents'],
+    ['⚠', 'Alerts', '#alerts'],
+    ['▣', 'Live camera feed', '#camera'],
     ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'Team tasks', '#tasksPanel']
   ]

@@ -27,3 +27,6 @@ Thumbs.db
 # Docker data
 docker-data/
 volumes/
+
+.vercel
+.env*

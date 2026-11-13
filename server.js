@@ -6,9 +6,10 @@ const bcrypt = require('bcryptjs');
 const database = require('./database');
 const PgSession = require('connect-pg-simple')(session);
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs/promises');
-const { spawn } = require('child_process');
+const { Readable } = require('stream');
 const multer = require('multer');
 
 const app = express();
@@ -20,10 +21,6 @@ if ((process.env.VERCEL || process.env.NODE_ENV === 'production') && !process.en
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(48).toString('hex');
 const pool = database;
 const recordingsRoot = path.resolve(process.env.RECORDINGS_DIR || path.join(__dirname, 'storage', 'recordings'));
-const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
-const segmentSeconds = Math.min(900, Math.max(60, Number(process.env.RECORDING_SEGMENT_SECONDS) || 300));
-const cameraRecorders = new Map();
-const recorderStates = new Map();
 const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 async function storageRequest(filePath, options = {}) {
@@ -34,6 +31,7 @@ async function storageRequest(filePath, options = {}) {
   });
 }
 const taskProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 }, fileFilter: (_req, file, callback) => callback(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) });
+const cameraRecordingUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 }, fileFilter: (_req, file, callback) => callback(null, ['video/webm', 'video/mp4'].includes(file.mimetype.split(';')[0].toLowerCase())) });
 const parseTaskProofUpload = (req, res, next) => taskProofUpload.single('picture')(req, res, (error) => {
   if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'Proof pictures must be 4 MB or smaller.' : 'Unable to read the proof picture.' });
   next();
@@ -71,165 +69,6 @@ const audit = async (userId, action, entityType, entityId, details, ip) => {
   await pool.execute('INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)',
     [userId || null, action, entityType, entityId || null, details ? JSON.stringify(details) : null, ip || null]);
 };
-
-function sqlDateTime(date) {
-  const pad = (value) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-function parseCsvRow(row) {
-  const values = [];
-  let value = '';
-  let quoted = false;
-  for (let index = 0; index < row.length; index += 1) {
-    const char = row[index];
-    if (char === '"' && quoted && row[index + 1] === '"') { value += '"'; index += 1; }
-    else if (char === '"') quoted = !quoted;
-    else if (char === ',' && !quoted) { values.push(value); value = ''; }
-    else value += char;
-  }
-  values.push(value);
-  return values;
-}
-async function indexClosedSegments(cameraId, directory) {
-  const listedDurations = new Map();
-  try {
-    const listing = await fs.readFile(path.join(directory, 'segments.csv'), 'utf8');
-    for (const row of listing.trim().split(/\r?\n/).filter(Boolean)) {
-      const [fileName, segmentStart, segmentEnd] = parseCsvRow(row);
-      const duration = Number(segmentEnd) - Number(segmentStart);
-      if (fileName && Number.isFinite(duration) && duration > 0) listedDurations.set(path.basename(fileName), duration);
-    }
-  } catch (error) {
-    if (error.code !== 'ENOENT') console.warn(`Could not read camera ${cameraId} recording list:`, error.message);
-  }
-
-  let files;
-  try { files = await fs.readdir(directory); }
-  catch (error) { if (error.code !== 'ENOENT') console.warn(`Could not scan camera ${cameraId} clips:`, error.message); return; }
-  for (const fileName of files) {
-    if (!/^camera_\d+_\d{8}_\d{6}\.mp4$/.test(fileName)) continue;
-    const match = fileName.match(/^camera_\d+_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.mp4$/);
-    if (!match) continue;
-    let file;
-    try {
-      const filePath = path.join(directory, fileName);
-      const stat = await fs.stat(filePath);
-      if (!stat.isFile() || stat.size < 32 || Date.now() - stat.mtimeMs < 15000) continue;
-      file = await fs.open(filePath, 'r');
-      const head = Buffer.alloc(Math.min(stat.size, 1024 * 1024));
-      const { bytesRead: headLength } = await file.read(head, 0, head.length, 0);
-      let hasMovieHeader = head.subarray(0, headLength).includes(Buffer.from('moov'));
-      if (!hasMovieHeader && stat.size > headLength) {
-        const tail = Buffer.alloc(Math.min(stat.size, 1024 * 1024));
-        const { bytesRead: tailLength } = await file.read(tail, 0, tail.length, Math.max(0, stat.size - tail.length));
-        hasMovieHeader = tail.subarray(0, tailLength).includes(Buffer.from('moov'));
-      }
-      await file.close();
-      file = null;
-      if (!hasMovieHeader) continue;
-
-      const startedAt = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
-      const durationSeconds = listedDurations.get(fileName) || Math.max(1, Math.round((stat.mtimeMs - startedAt.getTime()) / 1000));
-      await pool.execute('INSERT IGNORE INTO camera_recordings (camera_id, file_name, started_at, ended_at, duration_seconds, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?)',
-        [cameraId, fileName, sqlDateTime(startedAt), sqlDateTime(new Date(stat.mtimeMs)), durationSeconds, stat.size]);
-    } catch (error) {
-      if (error.code !== 'ENOENT' && error.code !== 'EBUSY' && error.code !== 'EPERM') console.warn(`Could not index camera ${cameraId} clip:`, error.message);
-    } finally { await file?.close().catch(() => {}); }
-  }
-}
-async function purgeExpiredArchivedRecordings() {
-  try {
-    const [expired] = await pool.query(`SELECT id, camera_id, file_name FROM camera_recordings WHERE archived_at < DATE_SUB(NOW(), INTERVAL 1 YEAR)`);
-    for (const recording of expired) {
-      const fileName = path.basename(recording.file_name);
-      if (!/^camera_\d+_\d{8}_\d{6}\.mp4$/.test(fileName)) continue;
-      try { await fs.unlink(path.join(recordingsRoot, String(recording.camera_id), fileName)); }
-      catch (error) { if (error.code !== 'ENOENT') { console.warn(`Could not purge expired recording ${recording.id}:`, error.message); continue; } }
-      await pool.execute('DELETE FROM camera_recordings WHERE id = ? AND archived_at < DATE_SUB(NOW(), INTERVAL 1 YEAR)', [recording.id]);
-    }
-    if (expired.length) console.log(`Purged ${expired.length} expired archived recording(s).`);
-  } catch (error) { console.warn('Could not purge expired archived recordings:', error.message); }
-}
-function stopCameraRecorder(cameraId) {
-  const recorder = cameraRecorders.get(Number(cameraId));
-  if (!recorder) return;
-  cameraRecorders.delete(Number(cameraId));
-  recorder.stopping = true;
-  if (recorder.retryTimer) clearTimeout(recorder.retryTimer);
-  if (recorder.indexTimer) clearInterval(recorder.indexTimer);
-  if (recorder.child && recorder.child.exitCode === null) {
-    try { recorder.child.stdin?.write('q\n'); } catch { /* Fall through to the forced-stop timer. */ }
-    recorder.stopTimer = setTimeout(() => {
-      if (recorder.child?.exitCode === null) recorder.child.kill();
-    }, 8000);
-  }
-  recorderStates.set(Number(cameraId), { status: 'stopped', error: null });
-}
-async function runCameraRecorder(recorder) {
-  if (recorder.stopping || cameraRecorders.get(recorder.cameraId) !== recorder) return;
-  try { await fs.mkdir(recorder.directory, { recursive: true }); }
-  catch (error) {
-    recorderStates.set(recorder.cameraId, { status: 'error', error: error.message });
-    recorder.retryTimer = setTimeout(() => runCameraRecorder(recorder), 15000);
-    return;
-  }
-  await indexClosedSegments(recorder.cameraId, recorder.directory);
-  const pattern = `camera_${recorder.cameraId}_%Y%m%d_%H%M%S.mp4`;
-  const args = [
-    '-hide_banner', '-loglevel', 'warning', '-y',
-    '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_on_network_error', '1', '-reconnect_delay_max', '10', '-rw_timeout', '15000000',
-    // MJPEG over Wi-Fi can occasionally lose a frame; drop damaged packets and keep recording.
-    '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
-    // Record the ESP32-CAM MJPEG stream directly.
-    '-f', 'mpjpeg', '-i', recorder.streamUrl,
-    '-map', '0:v:0', '-an', '-vf', 'fps=10,scale=in_range=full:out_range=tv', '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
-    '-pix_fmt', 'yuv420p', '-b:v', '500k', '-maxrate', '600k', '-bufsize', '1000k',
-    '-force_key_frames', `expr:gte(t,n_forced*${segmentSeconds})`,
-    '-f', 'segment', '-segment_time', String(segmentSeconds), '-reset_timestamps', '1', '-strftime', '1',
-    '-segment_list', 'segments.csv', '-segment_list_type', 'csv', '-segment_list_size', '1', '-segment_list_flags', '+live',
-    '-segment_format', 'mp4', '-segment_format_options', 'movflags=+faststart', pattern
-  ];
-  let child;
-  try { child = spawn(ffmpegPath, args, { cwd: recorder.directory, stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true }); }
-  catch (error) {
-    recorderStates.set(recorder.cameraId, { status: 'error', error: error.message });
-    recorder.retryTimer = setTimeout(() => runCameraRecorder(recorder), 15000);
-    return;
-  }
-  recorder.child = child;
-  recorderStates.set(recorder.cameraId, { status: 'recording', error: null });
-  recorder.indexTimer = setInterval(() => { void indexClosedSegments(recorder.cameraId, recorder.directory); }, 5000);
-  let stderr = '';
-  child.stderr?.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-2000); });
-  child.on('error', (error) => {
-    recorderStates.set(recorder.cameraId, { status: 'error', error: error.message });
-  });
-  child.on('close', async (code) => {
-    if (recorder.indexTimer) clearInterval(recorder.indexTimer);
-    if (recorder.stopTimer) clearTimeout(recorder.stopTimer);
-    await indexClosedSegments(recorder.cameraId, recorder.directory);
-    if (recorder.stopping || cameraRecorders.get(recorder.cameraId) !== recorder) return;
-    const message = stderr.trim() || (code ? `FFmpeg exited with code ${code}.` : 'Camera recorder stopped.');
-    recorderStates.set(recorder.cameraId, { status: 'reconnecting', error: message });
-    recorder.retryTimer = setTimeout(() => runCameraRecorder(recorder), 5000);
-  });
-}
-function startCameraRecorder(camera) {
-  const cameraId = Number(camera.id);
-  const current = cameraRecorders.get(cameraId);
-  if (current?.streamUrl === camera.stream_url) return;
-  if (current) stopCameraRecorder(cameraId);
-  const recorder = { cameraId, streamUrl: camera.stream_url, directory: path.join(recordingsRoot, String(cameraId)), child: null, retryTimer: null, stopping: false };
-  cameraRecorders.set(cameraId, recorder);
-  void runCameraRecorder(recorder);
-}
-async function syncCameraRecorders() {
-  if (process.env.VERCEL || process.env.ENABLE_CAMERA_RECORDING !== 'true') return;
-  const [cameras] = await pool.query('SELECT id, stream_url FROM cameras WHERE is_archived = 0 AND is_enabled = 1');
-  const activeIds = new Set(cameras.map((camera) => Number(camera.id)));
-  for (const cameraId of cameraRecorders.keys()) if (!activeIds.has(cameraId)) stopCameraRecorder(cameraId);
-  for (const camera of cameras) startCameraRecorder(camera);
-}
 
 app.get('/api/health', async (_req, res) => {
   try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'barangay-dashboard-api', database: 'connected' }); }
@@ -297,41 +136,13 @@ app.post('/api/auth/login', async (req, res) => {
 });
 app.post('/api/auth/logout', (req, res) => req.session.destroy(() => { res.clearCookie('barangay.sid'); res.json({ ok: true }); }));
 
-app.get('/api/incidents', requireAuth, async (req, res) => {
-  try {
-    const [rows] = await pool.query(`SELECT i.id AS dbId, i.reference_no AS referenceNo, i.type, i.note, i.status, i.occurred_at AS date, c.name AS camera, u.full_name AS reportedBy, i.snapshot_path IS NOT NULL AS hasSnapshot
-      FROM incidents i LEFT JOIN cameras c ON c.id = i.camera_id LEFT JOIN users u ON u.id = i.reported_by
-      WHERE i.archived_at IS NULL ORDER BY i.occurred_at DESC LIMIT 500`);
-    res.json(rows.map((row) => ({ ...row, id: row.referenceNo, camera: row.camera || 'Unassigned camera' })));
-  } catch { res.status(500).json({ error: 'Unable to load incidents.' }); }
-});
-app.post('/api/incidents', allow('captain', 'admin'), async (req, res) => {
-  const { type, note = '', cameraId = null } = req.body || {};
-  if (!type || typeof type !== 'string') return res.status(400).json({ error: 'type is required' });
-  try {
-    const ref = `INC-${Date.now().toString(36).toUpperCase()}`;
-    const [result] = await pool.execute('INSERT INTO incidents (reference_no, type, note, camera_id, reported_by) VALUES (?, ?, ?, ?, ?)', [ref, type.slice(0, 100), String(note).slice(0, 5000), cameraId || null, req.session.user.id]);
-    await audit(req.session.user.id, 'created', 'incident', result.insertId, { referenceNo: ref }, req.ip);
-    res.status(201).json({ incident: { id: ref, type, note, camera: 'Unassigned camera', status: 'Active', date: new Date().toISOString() } });
-  } catch { res.status(500).json({ error: 'Unable to save incident.' }); }
-});
-app.patch('/api/incidents/:id/archive', allow('admin'), async (req, res) => {
-  try { const [r] = await pool.execute('UPDATE incidents SET archived_at = NOW(), status = \'Archived\' WHERE id = ?', [req.params.id]); if (!r.affectedRows) return res.status(404).json({ error: 'Incident not found.' }); await audit(req.session.user.id, 'archived', 'incident', req.params.id, null, req.ip); res.json({ ok: true }); }
-  catch { res.status(500).json({ error: 'Unable to archive incident.' }); }
-});
-app.get('/api/incidents/:id/snapshot', requireAuth, async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid incident ID.' });
-  try {
-    const [[incident]] = await pool.execute('SELECT snapshot_path FROM incidents WHERE id = ?', [Number(req.params.id)]);
-    if (!incident?.snapshot_path) return res.status(404).json({ error: 'Snapshot not found.' });
-    const file = await storageRequest(`authenticated/camera-evidence/${incident.snapshot_path}`);
-    if (!file.ok) return res.status(file.status === 404 ? 404 : 502).json({ error: 'Unable to load incident snapshot.' });
-    res.set('Cache-Control', 'private, no-store').set('X-Content-Type-Options', 'nosniff').type('image/jpeg').send(Buffer.from(await file.arrayBuffer()));
-  } catch { res.status(500).json({ error: 'Unable to load incident snapshot.' }); }
-});
+const ensureCameraAlerts = require('./camera-alerts')(app, database.pool, requireAuth, allow);
+require('./face-management')(app, database.pool, requireAuth, allow);
+require('./announcement-notifications')(app, database.pool, allow);
+require('./account-passwords')(app, database.pool, allow);
 
 app.get('/api/cameras', requireAuth, async (_req, res) => {
-  try { const [rows] = await pool.query('SELECT id, name, stream_url AS streamUrl, location, is_enabled AS isEnabled, last_status AS status FROM cameras WHERE is_archived = 0 ORDER BY id'); res.json(rows); }
+  try { const [rows] = await pool.query('SELECT id, name, stream_url AS streamUrl, location, is_enabled AS isEnabled, last_status AS status, last_checked_at AS lastCheckedAt FROM cameras WHERE is_archived = 0 ORDER BY id'); res.json(rows); }
   catch { res.status(500).json({ error: 'Unable to load cameras.' }); }
 });
 app.get('/api/cameras/:id/relay-url', requireAuth, async (req, res) => {
@@ -349,11 +160,32 @@ app.get('/api/cameras/:id/relay-url', requireAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store').json({ url: `${relayBase}/cameras/${Number(req.params.id)}/stream?token=${payload}.${signature}` });
   } catch { res.status(500).json({ error: 'Unable to authorize the camera stream.' }); }
 });
-app.get('/api/recording/status', requireAuth, async (_req, res) => {
+app.get('/api/cameras/:id/stream', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid camera ID.' });
+  const abortController = new AbortController();
+  res.on('close', () => abortController.abort());
   try {
-    const [cameras] = await pool.query("SELECT id, name, last_status AS cameraStatus, last_checked_at AS lastCheckedAt FROM cameras WHERE is_archived = false AND is_enabled = true ORDER BY name");
-    res.json(cameras.map((camera) => ({ ...camera, status: camera.cameraStatus === 'online' ? 'recording' : camera.cameraStatus === 'offline' ? 'reconnecting' : 'starting', error: null })));
-  } catch { res.status(500).json({ error: 'Unable to load recording status.' }); }
+    const [[camera]] = await pool.execute('SELECT stream_url FROM cameras WHERE id = ? AND is_archived = false AND is_enabled = true', [Number(req.params.id)]);
+    if (!camera) return res.status(404).json({ error: 'Camera is not available.' });
+    let streamUrl = camera.stream_url;
+    const relayBase = process.env.CAMERA_RELAY_BASE_URL?.replace(/\/$/, '');
+    const relaySecret = process.env.CAMERA_RELAY_SECRET;
+    if (relayBase && relaySecret && Buffer.byteLength(relaySecret) >= 32) {
+      const payload = Buffer.from(JSON.stringify({ cameraId: Number(req.params.id), streamUrl, expiresAt: Date.now() + 5 * 60 * 1000 })).toString('base64url');
+      const signature = crypto.createHmac('sha256', relaySecret).update(payload).digest('base64url');
+      streamUrl = `${relayBase}/cameras/${Number(req.params.id)}/stream?token=${payload}.${signature}`;
+    }
+    const upstream = await fetch(streamUrl, { signal: abortController.signal, headers: { Accept: 'multipart/x-mixed-replace, image/jpeg' } });
+    if (!upstream.ok || !upstream.body) return res.status(502).json({ error: 'Unable to connect to the camera stream.' });
+    res.status(200).set('Content-Type', upstream.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=frame').set('Cache-Control', 'no-store');
+    for await (const chunk of Readable.fromWeb(upstream.body)) {
+      if (res.destroyed) break;
+      if (!res.write(chunk)) await new Promise((resolve) => res.once('drain', resolve));
+    }
+    if (!res.destroyed) res.end();
+  } catch (error) {
+    if (!res.headersSent && !abortController.signal.aborted) res.status(502).json({ error: 'Unable to connect to the camera stream.' });
+  }
 });
 app.get('/api/recordings', requireAuth, async (req, res) => {
   const { cameraId, from, to } = req.query;
@@ -368,6 +200,7 @@ app.get('/api/recordings', requireAuth, async (req, res) => {
   if (start === false || end === false || (cameraId && !/^\d+$/.test(String(cameraId)))) return res.status(400).json({ error: 'Choose a valid camera and date/time range.' });
   if (start && end && start > end) return res.status(400).json({ error: 'The start date/time must be before the end date/time.' });
   const archived = req.query.archived === 'true';
+  if (archived && req.session.user.role !== 'admin') return res.status(403).json({ error: 'Archive is available only to administrators.' });
   const conditions = ['r.archived_at IS ' + (archived ? 'NOT ' : '') + 'NULL'];
   if (!archived) conditions.push('c.is_archived = 0', 'c.is_enabled = 1');
   const params = [];
@@ -380,6 +213,84 @@ app.get('/api/recordings', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Unable to query camera recordings:', error.message);
     res.status(500).json({ error: 'Unable to load recorded footage. Apply the camera recordings database migration first.' });
+  }
+});
+app.post('/api/recordings/upload-url', requireAuth, async (req, res) => {
+  const cameraId = Number(req.body?.cameraId);
+  const contentType = String(req.body?.contentType || '').split(';')[0].toLowerCase();
+  if (!Number.isSafeInteger(cameraId) || cameraId < 1 || !['video/webm', 'video/mp4'].includes(contentType)) return res.status(400).json({ error: 'Choose a camera and supported recording format.' });
+  if (!supabaseUrl || !supabaseServiceKey) return res.json({ localUpload: true });
+  if (!process.env.SUPABASE_PUBLISHABLE_KEY) return res.status(503).json({ error: 'Set SUPABASE_PUBLISHABLE_KEY to enable direct recording uploads.' });
+  try {
+    const [[camera]] = await pool.execute('SELECT id FROM cameras WHERE id = ? AND is_archived = false AND is_enabled = true', [cameraId]);
+    if (!camera) return res.status(404).json({ error: 'Camera is not available.' });
+    const extension = contentType === 'video/mp4' ? 'mp4' : 'webm';
+    const fileName = String(req.body?.fileName || '');
+    if (!new RegExp(`^camera_${cameraId}_\\d{8}_\\d{6}_[a-f0-9]{8}\\.${extension}$`).test(fileName)) return res.status(400).json({ error: 'Invalid recording file name.' });
+    const storagePath = `recordings/${cameraId}/${fileName}`;
+    const signed = await storageRequest(`upload/sign/camera-evidence/${storagePath}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    if (!signed.ok) throw new Error(`Could not create upload link (${signed.status}).`);
+    const result = await signed.json();
+    const uploadUrl = result.url.startsWith('http') ? result.url : `${supabaseUrl}/storage/v1${result.url}`;
+    res.set('Cache-Control', 'no-store').json({ uploadUrl, publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY, storagePath, fileName });
+  } catch (error) {
+    console.error('Unable to prepare recording upload:', error.message);
+    res.status(500).json({ error: 'Unable to prepare secure recording upload.' });
+  }
+});
+app.post('/api/recordings', requireAuth, (req, res, next) => {
+  if (!req.is('multipart/form-data')) return next();
+  cameraRecordingUpload.single('video')(req, res, (error) => {
+    if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'Recordings must be 250 MB or smaller.' : 'Upload a supported WebM or MP4 recording.' });
+    next();
+  });
+}, async (req, res) => {
+  const cameraId = Number(req.body?.cameraId);
+  const startedValue = String(req.body?.startedAt || '');
+  const endedValue = String(req.body?.endedAt || '');
+  const fileNameFromClient = String(req.body?.fileName || '');
+  const requestedStoragePath = String(req.body?.storagePath || '');
+  const fileSize = Number(req.body?.fileSize || req.file?.size || 0);
+  const contentType = (req.file?.mimetype || String(req.body?.contentType || '')).split(';')[0].toLowerCase();
+  const localTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/.test(startedValue) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/.test(endedValue);
+  const startedAt = new Date(startedValue);
+  const endedAt = new Date(endedValue);
+  const durationSeconds = Math.round((endedAt - startedAt) / 1000);
+  if ((!req.file && !requestedStoragePath) || !Number.isSafeInteger(cameraId) || cameraId < 1 || !localTimestamp || Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime()) || durationSeconds < 1 || durationSeconds > 86400 || !Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > 250 * 1024 * 1024 || !['video/webm', 'video/mp4'].includes(contentType)) {
+    return res.status(400).json({ error: 'A camera, video, and valid recording time are required.' });
+  }
+  let storagePath = null;
+  let localFilePath = null;
+  let insertedRecordingId = null;
+  const extension = contentType === 'video/mp4' ? 'mp4' : 'webm';
+  const stamp = `${startedValue.slice(0, 10).replace(/-/g, '')}_${startedValue.slice(11, 19).replace(/:/g, '')}`;
+  const fileName = fileNameFromClient || `camera_${cameraId}_${stamp}_${crypto.randomBytes(4).toString('hex')}.${extension}`;
+  if (!new RegExp(`^camera_${cameraId}_\\d{8}_\\d{6}_[a-f0-9]{8}\\.${extension}$`).test(fileName)) return res.status(400).json({ error: 'Invalid recording file name.' });
+  if (requestedStoragePath && (!supabaseUrl || !supabaseServiceKey || requestedStoragePath !== `recordings/${cameraId}/${fileName}`)) return res.status(400).json({ error: 'Invalid recording storage path.' });
+  if (!requestedStoragePath && !req.file) return res.status(400).json({ error: 'The recording upload is missing.' });
+  try {
+    const [[camera]] = await pool.execute('SELECT id FROM cameras WHERE id = ? AND is_archived = false AND is_enabled = true', [cameraId]);
+    if (!camera) return res.status(404).json({ error: 'Camera is not available.' });
+    if (requestedStoragePath) {
+      storagePath = requestedStoragePath;
+    } else {
+      const directory = path.join(recordingsRoot, String(cameraId));
+      await fs.mkdir(directory, { recursive: true });
+      localFilePath = path.join(directory, fileName);
+      await fs.writeFile(localFilePath, req.file.buffer, { flag: 'wx' });
+    }
+    const dbStartedAt = startedValue.replace('T', ' ').slice(0, 19);
+    const dbEndedAt = endedValue.replace('T', ' ').slice(0, 19);
+    const [result] = await pool.execute('INSERT INTO camera_recordings (camera_id, file_name, started_at, ended_at, duration_seconds, file_size_bytes, storage_path) VALUES (?, ?, ?, ?, ?, ?, ?)', [cameraId, fileName, dbStartedAt, dbEndedAt, durationSeconds, fileSize, storagePath]);
+    insertedRecordingId = result.insertId;
+    await audit(req.session.user.id, 'created', 'recording', result.insertId, { cameraId, fileName }, req.ip);
+    res.status(201).json({ id: result.insertId, fileName, durationSeconds, fileSizeBytes: fileSize });
+  } catch (error) {
+    if (insertedRecordingId) await pool.execute('DELETE FROM camera_recordings WHERE id = ?', [insertedRecordingId]).catch(() => {});
+    if (storagePath) await storageRequest(`camera-evidence/${storagePath}`, { method: 'DELETE' }).catch(() => {});
+    if (localFilePath) await fs.unlink(localFilePath).catch(() => {});
+    console.error('Unable to save camera recording:', error.message);
+    res.status(500).json({ error: 'Unable to save this recording. Confirm the camera_recordings table and camera-evidence bucket are configured.' });
   }
 });
 app.patch('/api/recordings/:id/archive', allow('admin'), async (req, res) => {
@@ -406,7 +317,7 @@ app.delete('/api/recordings/:id', allow('admin'), async (req, res) => {
     const [[recording]] = await pool.execute('SELECT camera_id, file_name, archived_at, storage_path FROM camera_recordings WHERE id = ?', [Number(req.params.id)]);
     if (!recording || !recording.archived_at) return res.status(404).json({ error: 'Archived recording not found.' });
     const fileName = path.basename(recording.file_name);
-    if (!/^camera_\d+_\d{8}_\d{6}\.mp4$/.test(fileName)) return res.status(400).json({ error: 'Invalid recording file.' });
+    if (!/^camera_\d+_\d{8}_\d{6}(?:_[a-f0-9]{8})?\.(?:mp4|webm)$/.test(fileName)) return res.status(400).json({ error: 'Invalid recording file.' });
     if (recording.storage_path) {
       const removed = await storageRequest(`camera-evidence/${recording.storage_path}`, { method: 'DELETE' });
       if (!removed.ok && removed.status !== 404) throw new Error(`Could not delete stored video (${removed.status}).`);
@@ -423,7 +334,7 @@ app.get('/api/recordings/:id/video', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid recording ID.' });
   try {
     const [[recording]] = await pool.execute('SELECT camera_id, file_name, storage_path FROM camera_recordings WHERE id = ? AND archived_at IS NULL', [Number(req.params.id)]);
-    if (!recording || !/^camera_\d+_\d{8}_\d{6}\.mp4$/.test(recording.file_name)) return res.status(404).json({ error: 'Recording not found.' });
+    if (!recording || !/^camera_\d+_\d{8}_\d{6}(?:_[a-f0-9]{8})?\.(?:mp4|webm)$/.test(recording.file_name)) return res.status(404).json({ error: 'Recording not found.' });
     if (recording.storage_path) {
       const signed = await storageRequest(`sign/camera-evidence/${recording.storage_path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 300 }) });
       if (!signed.ok) throw new Error(`Could not create signed video link (${signed.status}).`);
@@ -434,7 +345,7 @@ app.get('/api/recordings/:id/video', requireAuth, async (req, res) => {
     }
     const filePath = path.join(recordingsRoot, String(recording.camera_id), recording.file_name);
     await fs.access(filePath);
-    res.type('video/mp4').sendFile(filePath, { headers: { 'Cache-Control': 'private, max-age=3600' } });
+    res.type(path.extname(filePath)).sendFile(filePath, { headers: { 'Cache-Control': 'private, max-age=3600' } });
   } catch (error) {
     if (error.code === 'ENOENT') return res.status(404).json({ error: 'Recording file is no longer available.' });
     res.status(500).json({ error: 'Unable to play this recording.' });
@@ -443,7 +354,7 @@ app.get('/api/recordings/:id/video', requireAuth, async (req, res) => {
 app.post('/api/cameras', allow('admin'), async (req, res) => {
   const { name, streamUrl, location = '' } = req.body || {};
   if (!name || !streamUrl || !/^https?:\/\//i.test(streamUrl)) return res.status(400).json({ error: 'Enter a camera name and valid HTTP(S) stream URL.' });
-  try { const [r] = await pool.execute('INSERT INTO cameras (name, stream_url, location, created_by) VALUES (?, ?, ?, ?)', [name.slice(0, 100), streamUrl.slice(0, 2048), location.slice(0, 200), req.session.user.id]); await audit(req.session.user.id, 'created', 'camera', r.insertId, null, req.ip); await syncCameraRecorders(); res.status(201).json({ id: r.insertId, name, streamUrl, location, status: 'unknown' }); }
+  try { const [r] = await pool.execute('INSERT INTO cameras (name, stream_url, location, created_by) VALUES (?, ?, ?, ?)', [name.slice(0, 100), streamUrl.slice(0, 2048), location.slice(0, 200), req.session.user.id]); await audit(req.session.user.id, 'created', 'camera', r.insertId, null, req.ip); res.status(201).json({ id: r.insertId, name, streamUrl, location, status: 'unknown' }); }
   catch { res.status(500).json({ error: 'Unable to save camera.' }); }
 });
 app.put('/api/camera-stream', allow('admin'), async (req, res) => {
@@ -467,17 +378,16 @@ app.put('/api/camera-stream', allow('admin'), async (req, res) => {
       id = result.insertId;
     }
     await audit(req.session.user.id, 'updated', 'camera_stream', id, null, req.ip);
-    await syncCameraRecorders();
     res.json({ id, streamUrl: parsedUrl.href });
   } catch { res.status(500).json({ error: 'Unable to save the shared camera URL.' }); }
 });
 app.patch('/api/cameras/:id', allow('admin'), async (req, res) => {
   const { name, streamUrl, location, isEnabled, status } = req.body || {};
-  try { await pool.execute('UPDATE cameras SET name = COALESCE(?, name), stream_url = COALESCE(?, stream_url), location = COALESCE(?, location), is_enabled = COALESCE(?, is_enabled), last_status = COALESCE(?, last_status), last_checked_at = IF(? IS NULL, last_checked_at, NOW()) WHERE id = ? AND is_archived = 0', [name || null, streamUrl || null, location ?? null, isEnabled === undefined ? null : Number(Boolean(isEnabled)), status || null, status || null, req.params.id]); await syncCameraRecorders(); res.json({ ok: true }); }
+  try { await pool.execute('UPDATE cameras SET name = COALESCE(?, name), stream_url = COALESCE(?, stream_url), location = COALESCE(?, location), is_enabled = COALESCE(?, is_enabled), last_status = COALESCE(?, last_status), last_checked_at = IF(? IS NULL, last_checked_at, NOW()) WHERE id = ? AND is_archived = 0', [name || null, streamUrl || null, location ?? null, isEnabled === undefined ? null : Number(Boolean(isEnabled)), status || null, status || null, req.params.id]); res.json({ ok: true }); }
   catch { res.status(500).json({ error: 'Unable to update camera.' }); }
 });
 app.patch('/api/cameras/:id/archive', allow('admin'), async (req, res) => {
-  try { const [r] = await pool.execute('UPDATE cameras SET is_archived = 1 WHERE id = ?', [req.params.id]); if (!r.affectedRows) return res.status(404).json({ error: 'Camera not found.' }); await audit(req.session.user.id, 'archived', 'camera', req.params.id, null, req.ip); await syncCameraRecorders(); res.json({ ok: true }); }
+  try { const [r] = await pool.execute('UPDATE cameras SET is_archived = 1 WHERE id = ?', [req.params.id]); if (!r.affectedRows) return res.status(404).json({ error: 'Camera not found.' }); await audit(req.session.user.id, 'archived', 'camera', req.params.id, null, req.ip); res.json({ ok: true }); }
   catch { res.status(500).json({ error: 'Unable to archive camera.' }); }
 });
 app.patch('/api/cameras/:id/status', requireAuth, async (req, res) => {
@@ -487,7 +397,7 @@ app.patch('/api/cameras/:id/status', requireAuth, async (req, res) => {
   catch { res.status(500).json({ error: 'Unable to update camera status.' }); }
 });
 app.get('/api/stats', requireAuth, async (_req, res) => {
-  try { const [[cams]] = await pool.query('SELECT COUNT(*) AS total, SUM(last_status = \'online\') AS online FROM cameras WHERE is_archived = 0 AND is_enabled = 1'); const [[incidents]] = await pool.query('SELECT SUM(status = \'Active\' AND archived_at IS NULL) AS active, SUM(DATE(occurred_at) = CURDATE() AND archived_at IS NULL) AS today FROM incidents'); res.json({ cameras: Number(cams.total || 0), online: Number(cams.online || 0), active: Number(incidents.active || 0), today: Number(incidents.today || 0) }); }
+  try { const [[cams]] = await pool.query('SELECT COUNT(*) AS total, SUM(last_status = \'online\') AS online FROM cameras WHERE is_archived = 0 AND is_enabled = 1'); await ensureCameraAlerts(); const { rows: [alerts] } = await database.pool.query("SELECT COUNT(*) FILTER (WHERE status = 'pending') AS active, COUNT(*) FILTER (WHERE (detected_at AT TIME ZONE 'Asia/Manila')::date = (NOW() AT TIME ZONE 'Asia/Manila')::date) AS today FROM camera_alerts"); res.json({ cameras: Number(cams.total || 0), online: Number(cams.online || 0), active: Number(alerts.active || 0), today: Number(alerts.today || 0) }); }
   catch { res.status(500).json({ error: 'Unable to load dashboard totals.' }); }
 });
 
@@ -666,15 +576,15 @@ app.patch('/api/auth/password', requireAuth, async (req, res) => {
 if (require.main === module) {
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Barangay dashboard running at http://localhost:${PORT}`);
-    if (process.env.ENABLE_CAMERA_RECORDING === 'true' && !process.env.VERCEL) {
-      purgeExpiredArchivedRecordings();
-      setInterval(purgeExpiredArchivedRecordings, 24 * 60 * 60 * 1000).unref();
-      syncCameraRecorders().catch((error) => console.error('Could not start camera recorders:', error.message));
+    if (!process.env.VERCEL) {
+      const addresses = Object.values(os.networkInterfaces()).flatMap((interfaces) => interfaces || [])
+        .filter((network) => network.family === 'IPv4' && !network.internal)
+        .map((network) => network.address);
+      for (const address of [...new Set(addresses)]) console.log(`On this Wi-Fi, open http://${address}:${PORT}`);
     }
   });
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
-      for (const cameraId of cameraRecorders.keys()) stopCameraRecorder(cameraId);
       httpServer.close(() => pool.end().finally(() => process.exit(0)));
       setTimeout(() => process.exit(1), 10000).unref();
     });

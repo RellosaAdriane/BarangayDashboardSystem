@@ -5,17 +5,31 @@ export function applyDashboardLayout(user, dashboard) {
   byId('dashboardTitle').textContent = `${dashboard.roleName} Dashboard`;
   byId('dashboardSubtitle').textContent = dashboard.description;
   byId('app').dataset.role = user.role;
-  byId('reportBtn').hidden = !dashboard.canReport;
-  byId('eventType').disabled = !dashboard.canReport;
-  byId('eventNote').disabled = !dashboard.canReport;
   byId('quickIncidentPanel').hidden = !dashboard.canReport;
-  byId('testAlertBtn').hidden = !dashboard.isAdmin;
   byId('cameraUrl').disabled = !dashboard.isAdmin;
   byId('saveUrlBtn').hidden = !dashboard.isAdmin;
   byId('cameraUrlSettings').hidden = !dashboard.isAdmin;
   byId('cameraControls').hidden = false;
   byId('cameraAdminPanel').hidden = !dashboard.isAdmin;
+  byId('faceManagementPanel').hidden = !dashboard.isAdmin;
+  byId('adminFaceTools').hidden = true;
   byId('userAdminPanel').hidden = !dashboard.isAdmin;
+  const reportsOnly = user.role === 'tanod';
+  const hideArchive = user.role !== 'admin';
+  byId('openRecordingArchiveBtn').hidden = hideArchive;
+  if (hideArchive) byId('recordingArchiveWrap').hidden = true;
+  const archiveOption = byId('alertView').querySelector('option[value="archived"]');
+  archiveOption.hidden = hideArchive;
+  archiveOption.disabled = hideArchive;
+  const pendingOption = byId('alertView').querySelector('option[value="pending"]');
+  pendingOption.hidden = reportsOnly;
+  pendingOption.disabled = reportsOnly;
+  byId('alertView').disabled = reportsOnly;
+  if (reportsOnly) byId('alertView').value = 'reports';
+  else if (hideArchive && byId('alertView').value === 'archived') byId('alertView').value = 'pending';
+  byId('alertViewHint').textContent = reportsOnly
+    ? 'Reported snapshots awaiting action. Open Preview to record the action taken. Actioned reports archive automatically.'
+    : 'Review unmatched snapshots as Recognized or Report. Reports remain active until actioned, then move to Archive automatically.';
   byId('announcementForm').hidden = !dashboard.canPublish;
   byId('taskForm').hidden = !dashboard.canAssignTasks;
   byId('createCalendarEventBtn').hidden = user.role !== 'captain';
@@ -38,8 +52,9 @@ export function applyDashboardLayout(user, dashboard) {
     const singlePanel = true;
     content.classList.toggle('single-route', singlePanel);
     content.querySelectorAll('.panel').forEach((panel) => {
-      panel.classList.toggle('route-selected', singlePanel && panel.id === route.slice(1));
-      panel.classList.toggle('route-inactive', singlePanel && panel.id !== route.slice(1));
+      const selected = panel.id === route.slice(1);
+      panel.classList.toggle('route-selected', singlePanel && selected);
+      panel.classList.toggle('route-inactive', singlePanel && !selected);
     });
     nav.querySelectorAll('a').forEach((link) => {
       const active = link.getAttribute('href') === route;

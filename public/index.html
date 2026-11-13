@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BarangayPOB-3A | Monitoring Dashboard</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=20261112-multi-camera">
 </head>
 <body>
 <div class="landing" id="landing">
   <header class="landing-nav"><a class="landing-brand" href="/"><img class="brand-icon" src="/images/logo.jpg" alt="Poblacion III-A seal"><span><strong>BarangayPOB-3A</strong><small>Community safety dashboard</small></span></a><div class="landing-actions"><button class="btn" id="openLoginBtn">Log in</button><button class="btn primary" id="openRegisterBtn">Create account</button></div></header>
-  <main class="landing-main"><div class="landing-copy"><span class="landing-kicker">BARANGAY SAFETY · CONNECTED</span><h1>Safer communities start with everyone looking out.</h1><p>One place for authorized barangay teams to monitor cameras, share incident reports, post announcements, and coordinate tasks.</p><div class="landing-cta"><button class="btn primary" id="heroLoginBtn">Log in to dashboard</button><button class="btn" id="heroRegisterBtn">Request an account</button></div><div class="landing-note">New accounts are reviewed by a barangay administrator before access is granted.</div></div><div class="landing-visual"><div class="visual-orb orb-one"></div><div class="visual-orb orb-two"></div><div class="preview-card"><div class="preview-top"><span class="preview-dot"></span><span>BARANGAYPOB-3A</span><span class="preview-live">● MONITORING</span></div><div class="preview-map"><div class="map-grid"></div><span class="camera-pin pin-one">CAM 01</span><span class="camera-pin pin-two">CAM 02</span><span class="map-route"></span><div class="map-caption">COMMUNITY COVERAGE</div></div><div class="preview-stats"><div><strong>Camera feeds</strong><span>Connected overview</span></div><div><strong>Incident reports</strong><span>Shared team history</span></div><div><strong>Team tasks</strong><span>Clear assignments</span></div></div></div></div></main>
+  <main class="landing-main"><div class="landing-copy"><span class="landing-kicker">BARANGAY SAFETY · CONNECTED</span><h1>Safer communities start with everyone looking out.</h1><p>One place for authorized barangay teams to monitor cameras, review camera snapshots, post announcements, and coordinate tasks.</p><div class="landing-cta"><button class="btn primary" id="heroLoginBtn">Log in to dashboard</button><button class="btn" id="heroRegisterBtn">Request an account</button></div><div class="landing-note">New accounts are reviewed by a barangay administrator before access is granted.</div></div><div class="landing-visual"><div class="visual-orb orb-one"></div><div class="visual-orb orb-two"></div><div class="preview-card"><div class="preview-top"><span class="preview-dot"></span><span>BARANGAYPOB-3A</span><span class="preview-live">● MONITORING</span></div><div class="preview-map"><div class="map-grid"></div><span class="camera-pin pin-one">CAM 01</span><span class="camera-pin pin-two">CAM 02</span><span class="map-route"></span><div class="map-caption">COMMUNITY COVERAGE</div></div><div class="preview-stats"><div><strong>Camera feeds</strong><span>Connected overview</span></div><div><strong>Snapshot alerts</strong><span>Shared team history</span></div><div><strong>Team tasks</strong><span>Clear assignments</span></div></div></div></div></main>
   <footer class="landing-footer">BarangayPOB-3A · Authorized personnel access · Your community, working together</footer>
 </div>
 <div class="app" id="app" hidden>
@@ -20,64 +20,60 @@
       <nav class="nav" id="mainNav">
         <a class="active" href="#overview"><span class="ico">▦</span>Dashboard</a>
         <a href="#camera"><span class="ico">▣</span>Live Cameras</a>
-        <a href="#alerts"><span class="ico">⚠</span>Intruder Alerts</a>
-        <a href="#incidents"><span class="ico">▤</span>Incident History</a>
+        <a href="#alerts"><span class="ico">⚠</span>Alerts</a>
       </nav>
     </div>
     <div class="sidebar-bottom">Barangay Security Monitoring<br>Authorized personnel only<br><span id="sideDate"></span></div>
   </aside>
   <main>
     <header class="topbar">
-      <div><h2 id="dashboardTitle">Barangay Monitoring Dashboard</h2><p id="dashboardSubtitle">Security overview and incident monitoring</p></div>
-      <div class="top-actions"><span class="status-pill" id="roleLabel">Dashboard</span><span id="userName"></span><div class="user-menu"><button class="avatar user-menu-trigger" id="userAvatar" type="button" aria-label="Open user menu" aria-haspopup="true" aria-expanded="false">AR</button><div class="user-menu-dropdown" id="userMenu" role="menu" hidden><button type="button" id="openSettingsBtn" role="menuitem">Settings</button><button type="button" id="openRecordingArchiveBtn" role="menuitem">Archived</button><button type="button" id="logoutBtn" role="menuitem">Log out</button></div></div></div>
+      <div><h2 id="dashboardTitle">Barangay Monitoring Dashboard</h2><p id="dashboardSubtitle">Camera monitoring and snapshot reviews</p></div>
+      <div class="top-actions">
+      <div id="reportNotifications" class="report-notifications" hidden>
+      <button class="btn" id="reportNotificationBtn" type="button" aria-expanded="false" aria-controls="reportNotificationPanel"><span aria-hidden="true">&#128276;</span> Notifications <span id="reportUnreadCount" class="report-unread-count" hidden>0</span></button>
+      <section id="reportNotificationPanel" class="report-notification-panel" aria-label="Announcements and report notifications" hidden>
+        <h3>Notifications</h3><p class="sub">New announcements and reported snapshots. Open a notification to mark it as read.</p>
+        <div id="reportNotificationList"></div>
+        <button class="btn" id="enableReportNotificationsBtn" type="button">Enable browser notifications</button>
+        <p class="sub">Keep this dashboard open for browser notifications. Unread announcements and reports remain available when you return.</p>
+        <p id="reportNotificationStatus" class="sub" role="status"></p>
+      </section>
+      </div>
+      <span class="status-pill" id="roleLabel">Dashboard</span><span id="userName"></span><div class="user-menu"><button class="avatar user-menu-trigger" id="userAvatar" type="button" aria-label="Open user menu" aria-haspopup="true" aria-expanded="false">AR</button><div class="user-menu-dropdown" id="userMenu" role="menu" hidden><button type="button" id="openSettingsBtn" role="menuitem">Settings</button><button type="button" id="openRecordingArchiveBtn" role="menuitem">Archived</button><button type="button" id="logoutBtn" role="menuitem">Log out</button></div></div>
+      </div>
     </header>
     <div class="content" id="overview">
       <div class="section-head"><div><h3>Overview</h3><div class="sub" id="todayText">Today's security status</div></div><button class="btn" id="refreshBtn">↻ Refresh view</button></div>
       <section class="stats">
         <div class="stat"><div><div class="stat-label">Total Cameras</div><div class="stat-num" id="totalCams">1</div><div class="stat-note">Configured camera feeds</div></div><div class="stat-icon">▣</div></div>
         <div class="stat"><div><div class="stat-label">Cameras Online</div><div class="stat-num" id="onlineCams">0</div><div class="stat-note">Feed connection status</div></div><div class="stat-icon green">⌁</div></div>
-        <div class="stat"><div><div class="stat-label">Active Alerts</div><div class="stat-num" id="activeCount">0</div><div class="stat-note">Unresolved incidents</div></div><div class="stat-icon red">⚠</div></div>
-        <div class="stat"><div><div class="stat-label">Incidents Today</div><div class="stat-num" id="todayCount">0</div><div class="stat-note">Recorded incidents</div></div><div class="stat-icon amber">▤</div></div>
+        <div class="stat"><div><div class="stat-label">Active Alerts</div><div class="stat-num" id="activeCount">0</div><div class="stat-note">Awaiting review</div></div><div class="stat-icon red">⚠</div></div>
+        <div class="stat"><div><div class="stat-label">Snapshots Today</div><div class="stat-num" id="todayCount">0</div><div class="stat-note">Captured snapshots</div></div><div class="stat-icon amber">▤</div></div>
       </section>
       <div class="grid-main">
         <div>
           <section class="panel" id="camera">
             <div class="panel-head"><div><h3>Live Camera Feed</h3><div class="sub">ESP32-CAM stream preview</div></div><span class="tag amber" id="feedBadge">NOT CONNECTED</span></div>
             <div class="panel-body">
+              <div id="cameraLiveGrid" class="camera-live-grid" hidden></div>
+              <div id="singleCameraPreview">
               <div class="camera-frame">
                 <img id="cameraImg" alt="ESP32-CAM live stream">
+                <canvas id="recognitionOverlay" aria-hidden="true"></canvas>
                 
                 <div class="camera-placeholder" id="cameraPlaceholder"><div class="cam-icon">▣</div><strong>Camera feed not connected</strong><span>Connect to the saved camera feed to begin viewing.</span></div>
                 <span class="live-tag" id="liveTag">LIVE</span>
                 <button class="camera-fullscreen" id="cameraFullscreenBtn" type="button" aria-label="View camera feed fullscreen" title="Fullscreen">Full</button>
               </div>
-              <div class="camera-meta"><div><span class="small" id="cameraStatus">Status: Waiting for camera URL</span></div><div class="cam-controls" id="cameraControls"><button class="btn primary" id="connectBtn">Connect Camera</button><button class="btn" id="disconnectBtn">Disconnect</button></div></div>
+              <div class="camera-meta"><span class="small" id="cameraStatus">Status: Waiting for camera URL</span><div class="cam-controls" id="cameraControls"><button class="btn primary" id="connectBtn">Connect Camera</button><button class="btn" id="disconnectBtn">Disconnect</button></div></div>
+              <section class="admin-face-tools" id="adminFaceTools" hidden aria-label="Camera snapshot detection">
+                <div class="admin-face-heading"><div><strong>Face monitoring</strong><span class="sub">Green: enrolled face match. Orange: unrecognized face.</span></div><span id="faceRecognitionStatus" class="sub" role="status">Off</span></div>
+                <div class="admin-face-actions"><button class="btn primary" id="toggleFaceRecognitionBtn" type="button" disabled>Start snapshot detection</button></div>
+                <div class="hint">Starts when a saved camera connects. Unmatched faces create snapshot alerts. Captain and admin review them as Recognized or Report. Manage enrollments under Face Management. Keep this dashboard open for monitoring.</div>
+              </section>
               <div id="cameraUrlSettings"><div class="field-row"><input id="cameraUrl" type="url" placeholder="Example: http://192.168.1.102:81/stream" aria-label="ESP32-CAM stream URL"><button class="btn" id="saveUrlBtn">Save camera URL</button></div>
-              <div class="hint">Enter the camera stream URL and select Connect Camera. Use Save camera URL to share it with other signed-in users.</div></div>
-            </div>
-          </section>
-          <section class="panel" id="recordedFootage">
-            <div class="panel-head"><div><h3>Recorded Footage</h3><div class="sub">Search and play saved camera clips</div></div><span class="tag amber" id="recorderStatusBadge">CHECKING</span></div>
-            <div class="panel-body">
-              <div class="recording-playback-layout">
-                <div class="recording-playback-main">
-                  <div class="recording-preview" id="recordingPreview"><div class="recording-preview-empty">Choose a clip on the timeline to play it</div><video id="recordingPlayer" controls playsinline preload="metadata" hidden></video></div>
-                  <div class="recording-player-head"><p class="sub" id="recordingNowPlaying">No clip selected</p><button class="btn" id="closeRecordingPlayerBtn" type="button" aria-label="Stop clip playback">Stop</button></div>
-                  <div class="recording-timeline-head"><strong>Playback timeline</strong><span id="recordingTimelineDate"></span></div>
-                  <div class="recording-timeline" id="recordingTimeline"><div class="empty">Select a date to load recorded clips.</div></div>
-                </div>
-                <aside class="recording-playback-sidebar">
-                  <label class="recording-date-label" for="recordingDate">Recording date</label>
-                  <input class="form-control" id="recordingDate" type="date">
-                  <div class="recording-channels-head"><strong>Channels</strong><span id="recordingChannelCount">0 cameras</span></div>
-                  <div class="recording-channels" id="recordingChannels"><div class="empty">Loading cameras…</div></div>
-                </aside>
+              <div class="hint">On the same Wi-Fi as the camera, enter its stream URL and select Connect Camera. In updated Chrome or Edge, select Allow when asked for Local network access. Use Save camera URL to share it with other signed-in users.</div></div>
               </div>
-              <select class="form-control" id="recordingCameraFilter" aria-label="Filter by camera" hidden><option value="">All cameras</option></select>
-              <input id="recordingFrom" type="datetime-local" hidden><input id="recordingTo" type="datetime-local" hidden>
-              <button id="searchRecordingsBtn" type="button" hidden>Search clips</button>
-              <p class="sub" id="recordingStatus" role="status">Recordings are saved in five-minute clips while a camera is enabled.</p>
-              <div class="table-wrap recording-list-scroll"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody id="recordingRows"><tr><td colspan="6" class="empty">Loading recordings…</td></tr></tbody></table></div>
             </div>
           </section>
           <section class="panel" id="eventsPanel">
@@ -97,16 +93,17 @@
               </form>
             </div>
           </section>
-          <section class="panel" id="incidents">
-            <div class="panel-head"><div><h3>Incident History</h3><div class="sub">Incident records from the backend or this session</div></div><button class="btn" id="reloadIncidentsBtn">Reload</button></div>
-            <div class="table-wrap"><table><thead><tr><th>Incident ID</th><th>Event</th><th>Camera</th><th>Date & Time</th><th>Status</th></tr></thead><tbody id="incidentRows"><tr><td colspan="5" class="empty">Loading incidents…</td></tr></tbody></table></div>
-          </section>
           <section class="panel" id="announcementsPanel"><div class="panel-head"><div><h3>Announcements</h3><div class="sub">Barangay dashboard notices</div></div></div><div class="panel-body"><div id="announcementsList" class="alert-list"><div class="empty">Loading announcements…</div></div><div id="announcementForm" hidden><label class="sub" for="announcementTitle">Title</label><input id="announcementTitle" class="form-control"><label class="sub" for="announcementBody">Announcement</label><textarea id="announcementBody" class="form-control" rows="3"></textarea><button class="btn primary" id="publishAnnouncementBtn">Publish announcement</button></div></div></section>
         </div>
         <div>
           <section class="panel" id="alerts">
-            <div class="panel-head"><div><h3>Intruder Alerts</h3><div class="sub">Latest security events</div></div><button class="btn" id="testAlertBtn">ï¼‹ Test alert</button></div>
-            <div class="panel-body"><div class="alert-list" id="alertList"><div class="empty">Loading alerts…</div></div></div>
+            <div class="panel-head"><div><h3>Alerts</h3><div class="sub">Snapshot review queue and camera status changes</div></div><button class="btn" id="reloadAlertsBtn">Refresh alerts</button></div>
+            <div class="panel-body">
+              <div class="alert-view-controls"><label for="alertView">Show snapshots</label><select id="alertView" class="form-control"><option value="pending">Pending review</option><option value="archived">Archive</option><option value="reports">Reports</option></select></div>
+              <p class="sub" id="alertViewHint">Review unmatched snapshots as Recognized or Report. Reports remain active until actioned, then move to Archive automatically.</p>
+              <p class="sub" id="alertLoadStatus" role="status"></p><div class="alert-list" id="alertList"><div class="empty">Loading alerts…</div></div>
+              <div class="alert-pagination"><button class="btn" id="previousAlertsBtn" type="button" disabled>Previous</button><span class="sub" id="alertPageStatus" role="status">Pending - Page 1</span><button class="btn" id="nextAlertsBtn" type="button" disabled>Next</button></div>
+            </div>
           </section>
           <section class="panel" id="quickIncidentPanel">
             <div class="panel-head"><div><h3>Camera Status</h3><div class="sub">Configured monitoring devices</div></div></div>
@@ -127,31 +124,57 @@
             </div>
           </section>
           <section class="panel" id="cameraAdminPanel" hidden><div class="panel-head"><div><h3>Camera setup</h3><div class="sub">Admin only</div></div></div><div class="panel-body"><label class="sub" for="newCameraName">Camera name</label><input id="newCameraName" class="form-control"><label class="sub" for="newCameraUrl">Stream URL</label><input id="newCameraUrl" class="form-control" type="url" placeholder="http://192.168.1.10:81/stream"><label class="sub" for="newCameraLocation">Location</label><input id="newCameraLocation" class="form-control"><button class="btn primary" id="addCameraBtn">Add camera</button><div id="cameraList" class="alert-list"></div></div></section>
-          <section class="panel" id="userAdminPanel" hidden><div class="panel-head"><div><h3>Account requests</h3><div class="sub">Review registrations and manage Tanod and Captain roles</div></div><button class="btn" id="refreshAccountRequestsBtn" type="button">Refresh requests</button></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Requested role</th><th>Requested</th><th>Decision</th></tr></thead><tbody id="pendingUserRows"></tbody></table></div><h4>Approved Tanod and Captain accounts</h4><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th></tr></thead><tbody id="userRows"></tbody></table></div></div></section>
-          <section class="panel" id="cameraStatusPanel">
-            <div class="panel-head"><h3>Quick Incident Report</h3></div>
+          <section class="panel" id="faceManagementPanel" hidden>
+            <div class="panel-head"><div><h3>Face Management</h3><div class="sub">Admin enrollment of authorized persons</div></div><span class="tag" id="enrolledFaceCount">0 enrolled</span></div>
             <div class="panel-body">
-              <label for="eventType" class="sub">Incident type</label>
-              <select id="eventType" class="form-control">
-                <option>Possible Intruder</option><option>Suspicious Movement</option><option>Manual Security Report</option><option>Camera Tampering</option>
-              </select>
-              <label for="eventNote" class="sub">Details (optional)</label>
-              <textarea id="eventNote" rows="3" placeholder="Add location or observation..." class="form-control"></textarea>
-              <button class="btn primary full" id="reportBtn">Record Incident</button>
-              <div class="hint">Incident data is sent to the Node.js API when available. If the API is unavailable, this page shows a local demo record only.</div>
+              <form id="addPersonForm" class="face-enrollment-form">
+                <h4>Add Person</h4>
+                <label class="sub" for="personName">Pangalan / Full name</label><input id="personName" class="form-control" maxlength="120" autocomplete="off" required>
+                <label class="sub" for="personPhoto">Picture</label><input id="personPhoto" class="form-control" type="file" accept="image/jpeg,image/png,image/webp" required>
+                <p class="hint">Use one clear, well-lit, front-facing picture containing exactly one person. JPEG, PNG or WebP, up to 4 MB. Face matching runs in this browser using face-api.js.</p>
+                <button class="btn primary" id="addPersonBtn" type="submit">Add Person</button>
+              </form>
+              <p id="faceManagementStatus" class="sub" role="status" aria-live="polite"></p>
+              <div class="face-list-heading"><h4>Enrolled Faces</h4><button class="btn" id="refreshFacesBtn" type="button">Refresh list</button></div>
+              <div id="enrolledFaceList" class="enrolled-face-list"><p class="empty">Loading enrolled faces...</p></div>
             </div>
           </section>
+          <section class="panel" id="userAdminPanel" hidden><div class="panel-head"><div><h3>Account management</h3><div class="sub">Review registrations, manage roles and reset Tanod/Captain passwords</div></div><button class="btn" id="refreshAccountRequestsBtn" type="button">Refresh requests</button></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Requested role</th><th>Requested</th><th>Decision</th></tr></thead><tbody id="pendingUserRows"></tbody></table></div><h4>Approved Tanod and Captain accounts</h4><p id="accountManagementStatus" class="sub" role="status" aria-live="polite"></p><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Actions</th></tr></thead><tbody id="userRows"></tbody></table></div></div></section>
         </div>
       </div>
       <div class="footer">BarangayPOB-3A Dashboard</div>
     </div>
   </main>
+  <button class="floating-help" id="openFirstUseGuide" type="button" aria-label="Buksan ulit ang tutorial" title="Tutorial">?</button>
 </div>
 <div class="auth-cover" id="authCover" hidden><form class="auth-card" id="authForm" novalidate><button class="auth-close" id="closeAuthBtn" type="button" aria-label="Close">×</button><img class="brand-icon" src="/images/logo.jpg" alt="Poblacion III-A seal"><h2 id="authHeading">Sign in to BarangayPOB-3A</h2><p id="authMessage">Authorized barangay personnel only.</p><div id="setupFields" hidden><label for="setupFirstName">First name</label><input id="setupFirstName" autocomplete="given-name"><label for="setupMiddleName">Middle name (optional)</label><input id="setupMiddleName" autocomplete="additional-name"><label for="setupLastName">Last name</label><input id="setupLastName" autocomplete="family-name"><label for="setupGender">Gender</label><select id="setupGender"><option value="female">Female</option><option value="male">Male</option></select><label for="setupDob">Date of birth (18+)</label><input id="setupDob" type="date" required></div><div id="registerFields" hidden><label for="registerFirstName">First name</label><input id="registerFirstName" autocomplete="given-name"><label for="registerMiddleName">Middle name (optional)</label><input id="registerMiddleName" autocomplete="additional-name"><label for="registerLastName">Last name</label><input id="registerLastName" autocomplete="family-name"><label for="registerGender">Gender</label><select id="registerGender"><option value="female">Female</option><option value="male">Male</option></select><label for="registerDob">Date of birth (18+)</label><input id="registerDob" type="date" required><label for="registerRole">Request role</label><select id="registerRole"><option value="tanod">Tanod</option><option value="captain">Barangay Captain</option></select></div><div id="credentialFields"><label id="usernameLabel" for="loginUsername">Username</label><input id="loginUsername" autocomplete="username" required><label id="passwordLabel" for="loginPassword">Password</label><div class="password-control"><input id="loginPassword" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" data-toggle-password="loginPassword" aria-label="Show password">Show</button></div><div id="confirmPasswordField" hidden><label for="confirmPassword">Confirm password</label><div class="password-control"><input id="confirmPassword" type="password" autocomplete="new-password"><button type="button" class="password-toggle" data-toggle-password="confirmPassword" aria-label="Show confirm password">Show</button></div></div><div id="setupConfirmPasswordField" hidden><label for="setupConfirmPassword">Confirm password</label><div class="password-control"><input id="setupConfirmPassword" type="password" autocomplete="new-password"><button type="button" class="password-toggle" data-toggle-password="setupConfirmPassword" aria-label="Show confirm password">Show</button></div></div></div><button class="btn primary full" id="authSubmit" type="submit">Log in</button><div id="authSwitch" class="auth-switch"></div><div id="authError" role="alert"></div></form></div>
 <div class="auth-cover settings-cover" id="settingsCover" hidden><section class="auth-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><button class="auth-close" id="closeSettingsBtn" type="button" aria-label="Close settings">&times;</button><h2 id="settingsTitle">Account settings</h2><p>Signed-in account details</p><dl class="settings-details"><dt>Name</dt><dd id="settingsName"></dd><dt>Username</dt><dd id="settingsUsername"></dd><dt>Role</dt><dd id="settingsRole"></dd></dl><form id="settingsPasswordForm"><h3>Change your password</h3><label for="currentAccountPassword">Current password</label><input class="form-control" id="currentAccountPassword" type="password" autocomplete="current-password" required><label for="newAccountPassword">New password (8–16 characters)</label><input class="form-control" id="newAccountPassword" type="password" minlength="8" maxlength="16" autocomplete="new-password" required><label for="confirmAccountPassword">Confirm new password</label><input class="form-control" id="confirmAccountPassword" type="password" minlength="8" maxlength="16" autocomplete="new-password" required><button class="btn primary" type="submit">Update password</button><span id="settingsPasswordStatus" class="sub" role="status"></span></form></section></div>
 <div class="auth-cover recording-archive-cover" id="recordingArchiveWrap" hidden><section class="auth-card recording-archive-card" role="dialog" aria-modal="true" aria-labelledby="recordingArchiveTitle"><button class="auth-close" id="closeRecordingArchiveBtn" type="button" aria-label="Close archived recordings">&times;</button><h2 id="recordingArchiveTitle">Archived recordings</h2><p>Archived clips can be restored for one year, then they are permanently deleted.</p><div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Ended</th><th>Archived</th><th>Size</th><th></th></tr></thead><tbody id="recordingArchiveRows"><tr><td colspan="6" class="empty">Open the archive to load clips.</td></tr></tbody></table></div></section></div>
-<script src="/script.js?v=20261110-camera-local"></script>
-<script src="/auth.js?v=login-route-4"></script>
+<div class="auth-cover first-use-cover" id="firstUseGuide" hidden><section class="auth-card first-use-card" role="dialog" aria-modal="true" aria-labelledby="firstUseTitle" aria-describedby="firstUseDescription"><button class="auth-close" id="closeFirstUseGuide" type="button" aria-label="Isara ang gabay">&times;</button><label class="first-use-language-label" for="firstUseLanguage">Wika / Language / Pinulongan</label><select id="firstUseLanguage" class="form-control first-use-language"><option value="fil">Filipino</option><option value="en">English</option><option value="ceb">Cebuano</option></select><span class="first-use-kicker" id="firstUseKicker">WELCOME SA BARANGAYPOB-3A</span><h2 id="firstUseTitle">Mabilis na gabay sa camera at alerts</h2><p id="firstUseDescription">Buksan ang <strong>Live camera feed</strong> at <strong>Alerts</strong> mula sa menu.</p><ol class="first-use-steps"><li id="firstUseStep1"><strong>Manood ng live:</strong> Buksan ang Live camera feed at pindutin ang <strong>Connect Camera</strong>.</li><li id="firstUseStep2"><strong>Palakihin ang view:</strong> Pindutin ang Full sa live camera feed.</li><li id="firstUseStep3"><strong>Tingnan ang alerts:</strong> Buksan ang Alerts para makita ang camera status at mga snapshot.</li></ol><button class="btn primary full" id="dismissFirstUseGuide" type="button">Sige, simulan na</button></section></div>
+<dialog id="snapshotPreview" class="snapshot-preview" aria-labelledby="snapshotPreviewTitle">
+  <header class="snapshot-preview-header"><h2 id="snapshotPreviewTitle">Snapshot preview</h2><div class="snapshot-preview-controls"><button class="btn" id="maximizeSnapshotPreview" type="button" aria-pressed="false">Maximize</button><button class="btn" id="closeSnapshotPreview" type="button" aria-label="Close snapshot preview">&times;</button></div></header>
+  <div id="snapshotPreviewBody" class="snapshot-preview-body"></div>
+</dialog>
+<dialog id="notificationAnnouncementPreview" class="snapshot-preview" aria-labelledby="notificationAnnouncementTitle">
+  <header class="snapshot-preview-header"><h2 id="notificationAnnouncementTitle">Announcement</h2><button class="btn" id="closeNotificationAnnouncementBtn" type="button" aria-label="Close announcement">&times;</button></header>
+  <div class="panel-body"><p id="notificationAnnouncementMeta" class="sub"></p><div id="notificationAnnouncementBody" class="notification-announcement-body"></div></div>
+</dialog>
+<dialog id="resetAccountPasswordDialog" class="snapshot-preview" aria-labelledby="resetAccountPasswordTitle">
+  <header class="snapshot-preview-header"><h2 id="resetAccountPasswordTitle">Reset account password</h2><button class="btn" id="closeResetAccountPasswordBtn" type="button" aria-label="Close password reset">&times;</button></header>
+  <form id="resetAccountPasswordForm" class="panel-body">
+    <p id="resetAccountPasswordTarget"></p><p class="sub">Set a new password for this account. This signs the account out of all existing sessions.</p>
+    <label class="sub" for="resetNewPassword">New password (8–16 characters)</label><input class="form-control" id="resetNewPassword" type="password" minlength="8" maxlength="16" autocomplete="new-password" required>
+    <label class="sub" for="resetConfirmPassword">Confirm new password</label><input class="form-control" id="resetConfirmPassword" type="password" minlength="8" maxlength="16" autocomplete="new-password" required>
+    <div class="approval-actions"><button class="btn primary" id="saveResetAccountPasswordBtn" type="submit">Reset Password</button><button class="btn" id="cancelResetAccountPasswordBtn" type="button">Cancel</button></div>
+    <p id="resetAccountPasswordStatus" class="sub" role="status" aria-live="polite"></p>
+  </form>
+</dialog>
+<script src="/script.js?v=20261112-tanod-reports-only"></script>
+<script src="/faces.js?v=20261112-face-management"></script>
+<script src="/camera-grid.js?v=20261112-multi-camera"></script>
+<script src="/report-notifications.js?v=20261112-actioned-archive-en"></script>
+<script src="/account-passwords.js?v=20261112-admin-password-reset"></script>
+<script src="/auth.js?v=20261112-tanod-reports-only"></script>
 
 </body>
 </html>
