@@ -66,14 +66,22 @@
   async function drawFrame(index) {
     if (!clip || index === lastFrame || busy) return;
     const version = generation, current = clip;
+    const safeIndex = Math.max(0, Math.min(current.frames.length - 1, Number.isFinite(index) ? index : 0));
+    const frame = current.frames[safeIndex];
+    if (!frame) {
+      if (version === generation) {
+        playing = false; play.textContent = 'Play';
+        status.textContent = 'This clip has no playable video frames.';
+      }
+      return;
+    }
     busy = true;
     let bitmap;
     try {
-      const frame = current.frames[index];
       bitmap = await createImageBitmap(new Blob([current.bytes.subarray(frame.offset, frame.offset + frame.size)], { type: 'image/jpeg' }));
       if (version !== generation) return;
       canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      lastFrame = index;
+      lastFrame = safeIndex;
     } catch (error) {
       if (version === generation) { playing = false; status.textContent = `Unable to decode frame: ${error.message}`; }
     } finally { bitmap?.close(); if (version === generation) busy = false; }
@@ -83,7 +91,7 @@
     position = Math.min(clip.duration, (now - origin) / 1000);
     seek.value = position;
     $('aviRecordingTime').textContent = `${position.toFixed(1)} / ${clip.duration.toFixed(1)} s`;
-    void drawFrame(Math.min(clip.frames.length - 1, Math.floor(position / clip.frameSeconds)));
+    void drawFrame(Math.floor(position / clip.frameSeconds));
     if (position >= clip.duration) {
       playing = false; play.textContent = 'Play';
       if (replayAuto && replayIndex < replayQueue.length - 1) void openReplayAt(replayIndex + 1, true);
@@ -107,7 +115,7 @@
     if (!clip) return;
     position = Number(seek.value); origin = performance.now() - position * 1000;
     $('aviRecordingTime').textContent = `${position.toFixed(1)} / ${clip.duration.toFixed(1)} s`;
-    void drawFrame(Math.min(clip.frames.length - 1, Math.floor(position / clip.frameSeconds)));
+    void drawFrame(Math.floor(position / clip.frameSeconds));
   });
   async function openReplayAt(index, autoPlay) {
     if (index < 0 || index >= replayQueue.length) return;
