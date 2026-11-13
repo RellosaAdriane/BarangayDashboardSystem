@@ -13,6 +13,15 @@
 #include "AviWriter.h"
 #include "secrets.h"
 
+// Existing secrets.h files stay compatible. Add these two optional macros when
+// you want a backup Wi-Fi network.
+#ifndef FALLBACK_WIFI_SSID
+#define FALLBACK_WIFI_SSID ""
+#endif
+#ifndef FALLBACK_WIFI_PASSWORD
+#define FALLBACK_WIFI_PASSWORD ""
+#endif
+
 constexpr uint32_t CLIP_MS = 60000, FRAME_MS = 200, MAX_FILE_BYTES = 64 * 1024 * 1024;
 SemaphoreHandle_t sdMutex;
 AviWriter writer;
@@ -33,6 +42,21 @@ void secureClient(WiFiClientSecure& client) {
   // ESP-IDF root certificate bundle: verifies both Vercel and R2 certificates.
   client.useBuiltinCACertBundle();
   client.setHandshakeTimeout(20);
+}
+bool joinWifi(const char* ssid, const char* password, uint32_t timeoutMs) {
+  if (!ssid || !ssid[0]) return false;
+  WiFi.disconnect(false, false);
+  WiFi.begin(ssid, password);
+  const uint32_t began = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - began < timeoutMs) delay(250);
+  return WiFi.status() == WL_CONNECTED;
+}
+bool connectWifi(uint32_t timeoutMs = 15000) {
+  if (WiFi.status() == WL_CONNECTED) return true;
+  // Prefer the normal network, then try the optional backup. Each reconnect
+  // starts a fresh association so a changed Wi-Fi/password is picked up.
+  if (joinWifi(WIFI_SSID, WIFI_PASSWORD, timeoutMs)) return true;
+  return joinWifi(FALLBACK_WIFI_SSID, FALLBACK_WIFI_PASSWORD, timeoutMs);
 }
 bool postJson(const String& path, const String& body, JsonDocument& result) {
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -123,7 +147,7 @@ bool processPending(const String& metadataPath) {
 void uploader(void*) {
   uint32_t retryDelay = 3000;
   for (;;) {
-    if (WiFi.status() != WL_CONNECTED) { WiFi.reconnect(); vTaskDelay(pdMS_TO_TICKS(10000)); continue; }
+    if (!connectWifi()) { vTaskDelay(pdMS_TO_TICKS(10000)); continue; }
     String pending = findPending();
     bool ok = pending.isEmpty() || processPending(pending);
     retryDelay = ok ? 3000 : min(uint32_t(60000), retryDelay * 2);
@@ -180,11 +204,11 @@ void setup() {
   if (!SD_MMC.begin("/sdcard", true) || SD_MMC.cardType() == CARD_NONE) { Serial.println("Insert a FAT32 microSD card and restart."); return; }
   SD_MMC.mkdir("/clips"); recoverIncomplete();
   if (!initCamera()) { Serial.println("Camera initialization failed."); return; }
-  WiFi.mode(WIFI_STA); WiFi.setSleep(false); WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.mode(WIFI_STA); WiFi.setSleep(false); connectWifi();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   // Wait for trustworthy UTC timestamps and certificate validity checks.
   Serial.println("Waiting for Wi-Fi and NTP time…");
-  while (WiFi.status() != WL_CONNECTED || time(nullptr) < 1735689600) { delay(500); }
+  while (!connectWifi() || time(nullptr) < 1735689600) { delay(500); }
   startLocalStream();
   if (xTaskCreatePinnedToCore(uploader, "clip-upload", 16384, nullptr, 1, nullptr, 0) != pdPASS) { Serial.println("Cannot start uploader."); return; }
   cameraReady = true;

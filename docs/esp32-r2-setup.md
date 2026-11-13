@@ -21,12 +21,12 @@ Keep the existing `DATABASE_URL`, session secret and Supabase values. Never put 
 
 ## 2. Configure R2 CORS for browser playback
 
-Open **bucket → Settings → CORS policy**. Replace the example domain with your exact production dashboard origin (no trailing slash). Add any preview/custom origins you actually use. Local development may use the localhost origin below.
+Open **bucket → Settings → CORS policy**. The ready-to-paste policy is [r2-cors.json](r2-cors.json) for your production dashboard at `https://pob3-a.vercel.app`. Add any preview/custom origins you actually use. Local development may use the localhost origin below.
 
 ```json
 [
   {
-    "AllowedOrigins": ["https://YOUR-DASHBOARD.vercel.app", "http://localhost:3000"],
+    "AllowedOrigins": ["https://pob3-a.vercel.app", "http://localhost:3000"],
     "AllowedMethods": ["GET", "HEAD"],
     "AllowedHeaders": ["Range"],
     "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
@@ -70,11 +70,16 @@ Open `ESP32/BarangayRecorder/BarangayRecorder.ino`. Copy `secrets.example.h` to 
 ```cpp
 const char* WIFI_SSID = "your_2.4GHz_wifi";
 const char* WIFI_PASSWORD = "your_wifi_password";
-const char* API_BASE_URL = "https://YOUR-DASHBOARD.vercel.app";
+// Optional: used automatically when the primary Wi-Fi is unavailable.
+#define FALLBACK_WIFI_SSID "your_phone_hotspot"
+#define FALLBACK_WIFI_PASSWORD "your_hotspot_password"
+const char* API_BASE_URL = "https://pob3-a.vercel.app";
 const char* DEVICE_TOKEN = "bwcam_...token_from_the_admin_page...";
 ```
 
 Use the canonical HTTPS Vercel/custom domain with no trailing slash. Device API routes must not be blocked by Vercel Deployment Protection. Keep certificate validation enabled; the sketch uses Espressif's built-in CA certificate bundle. Do not replace it with `setInsecure()`.
+
+The primary Wi-Fi is tried first. If it cannot connect within roughly 15 seconds, the fallback Wi-Fi is tried. Leave both `FALLBACK_WIFI_*` values blank when no backup network is needed. A normal 2.4 GHz router or phone hotspot works; public Wi-Fi with a browser login page does not.
 
 Select **AI Thinker ESP32-CAM**, enable PSRAM if that option is shown, and choose a partition scheme with enough application space (Huge APP / 3 MB). The camera pin mapping is for AI Thinker OV2640. This firmware replaces the current camera sketch; it is not an add-on to an already running sketch.
 
