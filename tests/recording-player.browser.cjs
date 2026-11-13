@@ -28,7 +28,7 @@ const fixture = require('./helpers/avi-fixture');
     browser = await chromium.launch({ channel: 'msedge', headless: true });
     const page = await browser.newPage(); const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/#pastFootagePanel`);
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('cameras:updated', { detail: [{ id: 1, name: 'Test camera' }] })));
     await page.getByRole('button', { name: 'Load recordings' }).click();
     await page.waitForFunction(() => document.getElementById('recordingPlayerStatus').textContent.includes('No audio'));

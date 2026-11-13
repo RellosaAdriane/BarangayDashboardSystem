@@ -9,6 +9,7 @@ export default {
   navigation: [
     ['▣', 'Live camera feed', '#camera'],
     ['&#9654;', 'Recording history', '#recordingHistoryPanel'],
+    ['&#9654;', 'Past Footage', '#pastFootagePanel'],
     ['⚠', 'Alerts', '#alerts'],
     ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'My tasks', '#tasksPanel']

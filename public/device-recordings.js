@@ -173,6 +173,7 @@
       const clips = await api(`/api/recordings?${query}`);
       historyClips = clips;
       $('replayRecordings').disabled = clips.length === 0;
+      $('pastFootageStatus').textContent = clips.length ? `${clips.length} recordings available. Latest footage opens automatically.` : 'No uploaded recordings found.';
       if (clips.length) {
         replayQueue = [...clips].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
         replayIndex = -1; renderReplayList();
@@ -189,8 +190,8 @@
         }
       }
       $('recordingHistoryStatus').textContent = clips.length ? `${clips.length} recordings (latest 500). Date filters use Philippine time.` : 'No uploaded recordings found.';
-      if (clips.length) await openReplayAt(replayQueue.length - 1, true);
-    } catch (error) { historyClips = []; $('replayRecordings').disabled = true; $('recordingHistoryStatus').textContent = error.message; }
+      if (clips.length && location.hash === '#pastFootagePanel') await openReplayAt(replayQueue.length - 1, true);
+    } catch (error) { historyClips = []; $('replayRecordings').disabled = true; $('recordingHistoryStatus').textContent = error.message; $('pastFootageStatus').textContent = error.message; }
     finally { loading = false; }
   }
   $('recordingHistoryForm').addEventListener('submit', (event) => { event.preventDefault(); void history(); });
@@ -217,7 +218,10 @@
     }
     $('deviceCameraTools').hidden = window.currentRole !== 'admin';
   });
-  window.addEventListener('hashchange', () => { if (location.hash === '#recordingHistoryPanel') void history(); else if (!dialog.hidden) { dialog.hidden = true; reset(true); } });
+  window.addEventListener('hashchange', () => {
+    if (location.hash === '#recordingHistoryPanel' || location.hash === '#pastFootagePanel') void history();
+    else if (!dialog.hidden) { dialog.hidden = true; reset(true); }
+  });
   // Clear the one-time token and release video memory when a user signs out.
   new MutationObserver(() => {
     if ($('app').hidden || getComputedStyle($('app')).display === 'none') { $('deviceTokenResult').textContent = ''; if (!dialog.hidden) { dialog.hidden = true; reset(true); } }

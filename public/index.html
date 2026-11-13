@@ -7,11 +7,11 @@
   <link rel="stylesheet" href="/style.css?v=20261112-multi-camera">
   <link rel="stylesheet" href="/recordings.css?v=20261114-playback-ui">
   <style>
-    .content.single-route .panel#recordingHistoryPanel.route-selected{max-width:1440px}
-    #recordingHistoryPanel .recording-player-dialog{width:100%;max-width:none;max-height:none;margin:18px 0 0;overflow:visible}
-    #recordingHistoryPanel .recording-player-shell{align-items:start}
-    #recordingHistoryPanel .recording-playlist{align-self:stretch}
-    #recordingHistoryPanel .recording-replay-list{max-height:680px}
+    .content.single-route .panel#pastFootagePanel.route-selected{max-width:1440px}
+    #pastFootagePanel .recording-player-dialog{width:100%;max-width:none;max-height:none;margin:0;overflow:visible}
+    #pastFootagePanel .recording-player-shell{align-items:start}
+    #pastFootagePanel .recording-playlist{align-self:stretch}
+    #pastFootagePanel .recording-replay-list{max-height:680px}
     .recording-technical-list{margin-top:16px;border:1px solid var(--line);border-radius:9px;background:#fff}
     .recording-technical-list summary{padding:12px 14px;color:var(--text);font-size:12px;font-weight:700;cursor:pointer}
     .recording-technical-list .table-wrap{border-top:1px solid var(--line)}
@@ -147,8 +147,20 @@
                 <label>To (Philippine time)<input id="recordingTo" class="form-control" type="datetime-local"></label>
                 <button type="submit" class="btn primary">Load recordings</button>
               </form>
-              <div class="recording-history-actions"><p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p><button id="replayRecordings" type="button" class="btn" disabled>Replay footage</button></div>
-              <details class="recording-technical-list"><summary>Recording details</summary><div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div></details>
+              <div class="recording-history-actions"><p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p></div>
+              <div class="recording-technical-list"><div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div></div>
+              <div id="deviceCameraTools" hidden>
+                <h4>Camera upload access</h4><p class="sub">Generate a token for your camera firmware. A new token replaces the previous one. Copy it before clearing or leaving this page.</p>
+                <label for="deviceCameraSelect">Camera</label><select id="deviceCameraSelect" class="form-control"></select>
+                <div class="approval-actions"><button id="createDeviceToken" type="button" class="btn">Generate token</button><button id="revokeDeviceToken" type="button" class="btn">Revoke token</button><button id="clearDeviceToken" type="button" class="btn">Clear displayed token</button></div>
+                <code id="deviceTokenResult" class="device-token" role="status"></code>
+              </div>
+            </div>
+          </section>
+          <section class="panel" id="pastFootagePanel">
+            <div class="panel-head"><div><h3>Past Footage</h3><div class="sub">Review and replay uploaded camera clips</div></div><button id="replayRecordings" type="button" class="btn primary" disabled>Replay footage</button></div>
+            <div class="panel-body">
+              <p id="pastFootageStatus" class="sub" role="status">Open this page to load available recordings.</p>
               <section id="recordingPlayerDialog" class="recording-player-dialog" aria-labelledby="recordingPlayerTitle" hidden>
                 <header class="recording-player-header"><div><p class="recording-eyebrow">CAMERA PLAYBACK</p><h2 id="recordingPlayerTitle">Camera playback</h2><p id="recordingPlayerSubtitle">Review recorded camera footage</p></div><button id="toggleRecordingMaximize" type="button" class="btn" aria-pressed="false">Fullscreen</button></header>
                 <div class="recording-player-shell">
@@ -163,12 +175,6 @@
                   <aside class="recording-playlist" aria-label="Available recordings"><div class="recording-playlist-head"><div><span>AVAILABLE RECORDINGS</span><strong>Replay queue</strong></div><span id="recordingReplayCount">0 clips</span></div><div id="recordingReplayList" class="recording-replay-list" role="list"></div></aside>
                 </div>
               </section>
-              <div id="deviceCameraTools" hidden>
-                <h4>Camera upload access</h4><p class="sub">Generate a token for your camera firmware. A new token replaces the previous one. Copy it before clearing or leaving this page.</p>
-                <label for="deviceCameraSelect">Camera</label><select id="deviceCameraSelect" class="form-control"></select>
-                <div class="approval-actions"><button id="createDeviceToken" type="button" class="btn">Generate token</button><button id="revokeDeviceToken" type="button" class="btn">Revoke token</button><button id="clearDeviceToken" type="button" class="btn">Clear displayed token</button></div>
-                <code id="deviceTokenResult" class="device-token" role="status"></code>
-              </div>
             </div>
           </section>
           <section class="panel" id="faceManagementPanel" hidden>
