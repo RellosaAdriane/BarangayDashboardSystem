@@ -10,6 +10,7 @@ export default {
   navigation: [
     ['⚠', 'Alerts', '#alerts'],
     ['▣', 'Live camera feed', '#camera'],
+    ['&#9654;', 'Recording history', '#recordingHistoryPanel'],
     ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'Team tasks', '#tasksPanel']
   ]

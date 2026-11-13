@@ -10,6 +10,7 @@ export default {
   navigation: [
     ['&#9786;', 'Face Management', '#faceManagementPanel'],
     ['▣', 'Live camera feed', '#camera'],
+    ['&#9654;', 'Recording history', '#recordingHistoryPanel'],
     ['⚠', 'Alerts', '#alerts'],
     ['◎', 'Camera setup', '#cameraAdminPanel'],
     ['♙', 'Account management', '#userAdminPanel'],

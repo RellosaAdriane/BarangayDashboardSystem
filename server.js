@@ -138,6 +138,7 @@ app.post('/api/auth/logout', (req, res) => req.session.destroy(() => { res.clear
 
 const ensureCameraAlerts = require('./camera-alerts')(app, database.pool, requireAuth, allow);
 require('./face-management')(app, database.pool, requireAuth, allow);
+const deviceRecordings = require('./device-recordings')(app, database.pool, requireAuth, allow);
 require('./announcement-notifications')(app, database.pool, allow);
 require('./account-passwords')(app, database.pool, allow);
 
@@ -205,10 +206,14 @@ app.get('/api/recordings', requireAuth, async (req, res) => {
   if (!archived) conditions.push('c.is_archived = 0', 'c.is_enabled = 1');
   const params = [];
   if (cameraId) { conditions.push('r.camera_id = ?'); params.push(Number(cameraId)); }
-  if (start) { conditions.push('r.ended_at >= ?'); params.push(start); }
-  if (end) { conditions.push('r.started_at <= ?'); params.push(end); }
+  if (start) { conditions.push("(CASE WHEN r.storage_provider = 'r2' THEN r.ended_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila' ELSE r.ended_at END) >= ?"); params.push(start); }
+  if (end) { conditions.push("(CASE WHEN r.storage_provider = 'r2' THEN r.started_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila' ELSE r.started_at END) <= ?"); params.push(end); }
   try {
-    const [rows] = await pool.execute(`SELECT r.id, r.camera_id AS cameraId, c.name AS cameraName, r.started_at AS startedAt, r.ended_at AS endedAt, r.duration_seconds AS durationSeconds, r.file_size_bytes AS fileSizeBytes, r.archived_at AS archivedAt FROM camera_recordings r JOIN cameras c ON c.id = r.camera_id WHERE ${conditions.join(' AND ')} ORDER BY r.started_at DESC LIMIT 500`, params);
+    const [rows] = await pool.execute(`SELECT r.id, r.camera_id AS cameraId, c.name AS cameraName,
+      to_char(r.started_at, 'YYYY-MM-DD"T"HH24:MI:SS') || CASE WHEN r.storage_provider = 'r2' THEN 'Z' ELSE '' END AS startedAt,
+      to_char(r.ended_at, 'YYYY-MM-DD"T"HH24:MI:SS') || CASE WHEN r.storage_provider = 'r2' THEN 'Z' ELSE '' END AS endedAt,
+      r.duration_seconds AS durationSeconds, r.file_size_bytes AS fileSizeBytes, r.archived_at AS archivedAt, r.storage_provider AS storageProvider, r.file_name AS fileName
+      FROM camera_recordings r JOIN cameras c ON c.id = r.camera_id WHERE ${conditions.join(' AND ')} ORDER BY r.started_at DESC LIMIT 500`, params);
     res.json(rows);
   } catch (error) {
     console.error('Unable to query camera recordings:', error.message);
@@ -314,11 +319,13 @@ app.patch('/api/recordings/:id/restore', allow('admin'), async (req, res) => {
 app.delete('/api/recordings/:id', allow('admin'), async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid recording ID.' });
   try {
-    const [[recording]] = await pool.execute('SELECT camera_id, file_name, archived_at, storage_path FROM camera_recordings WHERE id = ?', [Number(req.params.id)]);
+    const [[recording]] = await pool.execute('SELECT camera_id, file_name, archived_at, storage_path, storage_provider FROM camera_recordings WHERE id = ?', [Number(req.params.id)]);
     if (!recording || !recording.archived_at) return res.status(404).json({ error: 'Archived recording not found.' });
     const fileName = path.basename(recording.file_name);
-    if (!/^camera_\d+_\d{8}_\d{6}(?:_[a-f0-9]{8})?\.(?:mp4|webm)$/.test(fileName)) return res.status(400).json({ error: 'Invalid recording file.' });
-    if (recording.storage_path) {
+    if (!/^camera_\d+_(?:\d{8}_\d{6}(?:_[a-f0-9]{8})?\.(?:mp4|webm)|[a-f0-9]{32}\.avi)$/.test(fileName)) return res.status(400).json({ error: 'Invalid recording file.' });
+    if (recording.storage_provider === 'r2') {
+      await deviceRecordings.storage.remove(recording.storage_path);
+    } else if (recording.storage_path) {
       const removed = await storageRequest(`camera-evidence/${recording.storage_path}`, { method: 'DELETE' });
       if (!removed.ok && removed.status !== 404) throw new Error(`Could not delete stored video (${removed.status}).`);
     } else {
@@ -333,8 +340,9 @@ app.delete('/api/recordings/:id', allow('admin'), async (req, res) => {
 app.get('/api/recordings/:id/video', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid recording ID.' });
   try {
-    const [[recording]] = await pool.execute('SELECT camera_id, file_name, storage_path FROM camera_recordings WHERE id = ? AND archived_at IS NULL', [Number(req.params.id)]);
-    if (!recording || !/^camera_\d+_\d{8}_\d{6}(?:_[a-f0-9]{8})?\.(?:mp4|webm)$/.test(recording.file_name)) return res.status(404).json({ error: 'Recording not found.' });
+    const [[recording]] = await pool.execute('SELECT r.camera_id, r.file_name, r.storage_path, r.storage_provider FROM camera_recordings r JOIN cameras c ON c.id = r.camera_id WHERE r.id = ? AND r.archived_at IS NULL AND c.is_enabled = true AND c.is_archived = false', [Number(req.params.id)]);
+    if (!recording || !/^camera_\d+_(?:\d{8}_\d{6}(?:_[a-f0-9]{8})?\.(?:mp4|webm)|[a-f0-9]{32}\.avi)$/.test(recording.file_name)) return res.status(404).json({ error: 'Recording not found.' });
+    if (recording.storage_provider === 'r2') return res.set('Cache-Control', 'private, no-store').redirect(302, await deviceRecordings.storage.videoUrl(recording.storage_path, true));
     if (recording.storage_path) {
       const signed = await storageRequest(`sign/camera-evidence/${recording.storage_path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 300 }) });
       if (!signed.ok) throw new Error(`Could not create signed video link (${signed.status}).`);

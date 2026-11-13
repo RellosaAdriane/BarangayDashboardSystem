@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BarangayPOB-3A | Monitoring Dashboard</title>
   <link rel="stylesheet" href="/style.css?v=20261112-multi-camera">
+  <link rel="stylesheet" href="/recordings.css?v=20261114">
 </head>
 <body>
 <div class="landing" id="landing">
@@ -124,6 +125,25 @@
             </div>
           </section>
           <section class="panel" id="cameraAdminPanel" hidden><div class="panel-head"><div><h3>Camera setup</h3><div class="sub">Admin only</div></div></div><div class="panel-body"><label class="sub" for="newCameraName">Camera name</label><input id="newCameraName" class="form-control"><label class="sub" for="newCameraUrl">Stream URL</label><input id="newCameraUrl" class="form-control" type="url" placeholder="http://192.168.1.10:81/stream"><label class="sub" for="newCameraLocation">Location</label><input id="newCameraLocation" class="form-control"><button class="btn primary" id="addCameraBtn">Add camera</button><div id="cameraList" class="alert-list"></div></div></section>
+          <section class="panel" id="recordingHistoryPanel">
+            <div class="panel-head"><div><h3>Recording history</h3><div class="sub">Uploaded camera clips</div></div></div>
+            <div class="panel-body">
+              <form id="recordingHistoryForm" class="recording-filters">
+                <label>Camera<select id="recordingCameraFilter" class="form-control"><option value="">All cameras</option></select></label>
+                <label>From (Philippine time)<input id="recordingFrom" class="form-control" type="datetime-local"></label>
+                <label>To (Philippine time)<input id="recordingTo" class="form-control" type="datetime-local"></label>
+                <button type="submit" class="btn primary">Load recordings</button>
+              </form>
+              <p id="recordingHistoryStatus" role="status">Choose filters and load recordings.</p>
+              <div class="table-wrap"><table><thead><tr><th>Camera</th><th>Started</th><th>Duration</th><th>Size</th><th>Actions</th></tr></thead><tbody id="deviceRecordingRows"></tbody></table></div>
+              <div id="deviceCameraTools" hidden>
+                <h4>Camera upload access</h4><p class="sub">Generate a token for your camera firmware. A new token replaces the previous one. Copy it before clearing or leaving this page.</p>
+                <label for="deviceCameraSelect">Camera</label><select id="deviceCameraSelect" class="form-control"></select>
+                <div class="approval-actions"><button id="createDeviceToken" type="button" class="btn">Generate token</button><button id="revokeDeviceToken" type="button" class="btn">Revoke token</button><button id="clearDeviceToken" type="button" class="btn">Clear displayed token</button></div>
+                <code id="deviceTokenResult" class="device-token" role="status"></code>
+              </div>
+            </div>
+          </section>
           <section class="panel" id="faceManagementPanel" hidden>
             <div class="panel-head"><div><h3>Face Management</h3><div class="sub">Admin enrollment of authorized persons</div></div><span class="tag" id="enrolledFaceCount">0 enrolled</span></div>
             <div class="panel-body">
@@ -169,6 +189,17 @@
     <p id="resetAccountPasswordStatus" class="sub" role="status" aria-live="polite"></p>
   </form>
 </dialog>
+<dialog id="recordingPlayerDialog" class="snapshot-preview" aria-labelledby="recordingPlayerTitle">
+  <header class="snapshot-preview-header"><h2 id="recordingPlayerTitle">Recorded footage</h2><button id="closeRecordingPlayer" type="button" class="btn">Close</button></header>
+  <div class="panel-body"><p id="recordingPlayerStatus" role="status"></p>
+    <canvas id="aviRecordingCanvas" class="recording-playback" hidden></canvas>
+    <video id="standardRecordingVideo" class="recording-playback" controls playsinline hidden></video>
+    <div id="aviRecordingControls" hidden><button id="aviRecordingPlay" type="button" class="btn">Play</button><input id="aviRecordingSeek" type="range" min="0" max="60" step="0.2" value="0" aria-label="Recording position"><span id="aviRecordingTime"></span></div>
+    <a id="recordingDownload" class="btn" target="_blank" rel="noopener">Download original</a>
+  </div>
+</dialog>
+<script src="/mjpeg-avi.js?v=20261114"></script>
+<script src="/device-recordings.js?v=20261114"></script>
 <script src="/script.js?v=20261112-tanod-reports-only"></script>
 <script src="/faces.js?v=20261112-face-management"></script>
 <script src="/camera-grid.js?v=20261112-multi-camera"></script>

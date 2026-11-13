@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 
 test('bundled runtime schemas match the SQL source files', () => {
   const schemas = require('../database/runtime-schemas');
-  for (const [key, file] of Object.entries({ cameraAlerts: 'camera_alerts.sql', reportNotifications: 'report_notifications.sql', enrolledFaces: 'enrolled_faces.sql', announcementReads: 'announcement_reads.sql' })) {
+  for (const [key, file] of Object.entries({ cameraAlerts: 'camera_alerts.sql', reportNotifications: 'report_notifications.sql', enrolledFaces: 'enrolled_faces.sql', announcementReads: 'announcement_reads.sql', deviceRecordings: 'device_recordings.sql' })) {
     assert.equal(schemas[key], fs.readFileSync(path.join(root, 'database', file), 'utf8').replace(/\r\n/g, '\n'), file);
   }
 });

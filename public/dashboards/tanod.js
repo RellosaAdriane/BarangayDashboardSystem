@@ -8,6 +8,7 @@ export default {
   isAdmin: false,
   navigation: [
     ['▣', 'Live camera feed', '#camera'],
+    ['&#9654;', 'Recording history', '#recordingHistoryPanel'],
     ['⚠', 'Alerts', '#alerts'],
     ['◷', 'Events calendar', '#eventsPanel'],
     ['✓', 'My tasks', '#tasksPanel']

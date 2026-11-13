@@ -6,7 +6,8 @@ const sources = {
   cameraAlerts: 'camera_alerts.sql',
   reportNotifications: 'report_notifications.sql',
   enrolledFaces: 'enrolled_faces.sql',
-  announcementReads: 'announcement_reads.sql'
+  announcementReads: 'announcement_reads.sql',
+  deviceRecordings: 'device_recordings.sql'
 };
 const schemas = Object.fromEntries(Object.entries(sources).map(([key, file]) => [
   key, fs.readFileSync(path.join(directory, file), 'utf8').replace(/\r\n/g, '\n')

@@ -5,6 +5,7 @@
 
 /storage/recordings/
 /ESP32/secrets.h
+/ESP32/**/secrets.h
 
 node_modules/
 .env

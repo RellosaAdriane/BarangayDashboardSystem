@@ -35,6 +35,8 @@ Save the camera URL before connecting to enable monitoring. Enrolled matches are
 
 ## Vercel setup
 
+For autonomous AI Thinker ESP32-CAM recordings to Cloudflare R2, follow [the ESP32 + R2 setup guide](docs/esp32-r2-setup.md). It includes firmware, private uploads, camera tokens, and browser MJPEG-AVI playback while retaining the existing Supabase recordings.
+
 Runtime SQL is bundled as the JavaScript module `database/runtime-schemas.js` so serverless functions do not depend on deployed `.sql` files. After editing any runtime schema, run `npm run generate:schemas`. Vercel runs the same generator through `vercel-build`. The regression tests also run the affected endpoints from a bundle containing no SQL files.
 
 Configure these Production and Preview environment variables:
