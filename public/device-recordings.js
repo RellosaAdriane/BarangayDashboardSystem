@@ -147,6 +147,17 @@
   }
   $('previousRecording').addEventListener('click', () => void openReplayAt(replayIndex - 1, false));
   $('nextRecording').addEventListener('click', () => void openReplayAt(replayIndex + 1, false));
+  $('toggleRecordingMaximize').addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement === dialog) await document.exitFullscreen();
+      else await dialog.requestFullscreen();
+    } catch (error) { status.textContent = `Fullscreen is unavailable: ${error.message}`; }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const active = document.fullscreenElement === dialog;
+    $('toggleRecordingMaximize').textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    $('toggleRecordingMaximize').setAttribute('aria-pressed', String(active));
+  });
   video.addEventListener('ended', () => { if (replayAuto && replayIndex < replayQueue.length - 1) void openReplayAt(replayIndex + 1, true); });
   let loading = false;
   async function history() {
