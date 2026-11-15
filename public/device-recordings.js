@@ -175,10 +175,14 @@
     rows.replaceChildren(); $('recordingHistoryStatus').textContent = 'Loading…';
     try {
       const query = new URLSearchParams();
-      if ($('recordingCameraFilter').value) query.set('cameraId', $('recordingCameraFilter').value);
-      if ($('recordingFrom').value) query.set('from', $('recordingFrom').value);
-      if ($('recordingTo').value) query.set('to', $('recordingTo').value);
-      const clips = await api(`/api/recordings?${query}`);
+      const pastFootage = location.hash === '#pastFootagePanel';
+      // Past Footage always shows every active clip. Recording History retains
+      // its user-selected filters without hiding newer footage in the playlist.
+      if (!pastFootage && $('recordingCameraFilter').value) query.set('cameraId', $('recordingCameraFilter').value);
+      if (!pastFootage && $('recordingFrom').value) query.set('from', $('recordingFrom').value);
+      if (!pastFootage && $('recordingTo').value) query.set('to', $('recordingTo').value);
+      query.set('_', String(Date.now()));
+      const clips = await api(`/api/recordings?${query}`, { cache: 'no-store' });
       historyClips = clips;
       $('replayRecordings').disabled = clips.length === 0;
       $('pastFootageStatus').textContent = clips.length ? `${clips.length} recordings available. Latest footage opens automatically.` : 'No uploaded recordings found.';
@@ -203,6 +207,7 @@
     finally { loading = false; }
   }
   $('recordingHistoryForm').addEventListener('submit', (event) => { event.preventDefault(); void history(); });
+  $('refreshPastFootage').addEventListener('click', () => void history());
   $('replayRecordings').addEventListener('click', () => void startReplay(historyClips));
   $('clearDeviceToken').addEventListener('click', () => { $('deviceTokenResult').textContent = ''; });
   $('createDeviceToken').addEventListener('click', async () => {
@@ -229,6 +234,9 @@
   window.addEventListener('hashchange', () => {
     if (location.hash === '#recordingHistoryPanel' || location.hash === '#pastFootagePanel') void history();
     else if (!dialog.hidden) { dialog.hidden = true; reset(true); }
+  });
+  window.addEventListener('dashboard:route', (event) => {
+    if (event.detail?.route === '#recordingHistoryPanel' || event.detail?.route === '#pastFootagePanel') void history();
   });
   // Clear the one-time token and release video memory when a user signs out.
   new MutationObserver(() => {

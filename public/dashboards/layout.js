@@ -76,6 +76,7 @@ export function applyDashboardLayout(user, dashboard) {
       if (active) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     });
+    window.dispatchEvent(new CustomEvent('dashboard:route', { detail: { route } }));
   };
   nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', (event) => {
     event.preventDefault();
