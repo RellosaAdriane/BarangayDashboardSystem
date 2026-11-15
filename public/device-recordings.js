@@ -31,7 +31,10 @@
     list.replaceChildren();
     $('recordingReplayCount').textContent = `${replayQueue.length} ${replayQueue.length === 1 ? 'clip' : 'clips'}`;
     if (!replayQueue.length) { list.textContent = 'No recordings loaded.'; return; }
-    replayQueue.forEach((item, index) => {
+    // Show the latest upload first in the list, while replayQueue itself stays
+    // oldest-to-newest so automatic replay remains chronological.
+    [...replayQueue].reverse().forEach((item) => {
+      const index = replayQueue.indexOf(item);
       const itemButton = document.createElement('button');
       itemButton.type = 'button'; itemButton.className = 'recording-replay-item';
       itemButton.setAttribute('role', 'listitem'); itemButton.setAttribute('aria-current', index === replayIndex ? 'true' : 'false');
