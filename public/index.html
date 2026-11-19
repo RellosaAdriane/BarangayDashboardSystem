@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BarangayPOB-3A | Monitoring Dashboard</title>
-  <link rel="stylesheet" href="/style.css?v=20261112-multi-camera">
+<link rel="stylesheet" href="/style.css?v=20261118-dom-face-boxes">
   <link rel="stylesheet" href="/recordings.css?v=20261114-playback-ui">
   <link rel="stylesheet" href="/dashboard-theme.css?v=20261114-blue-green">
   <style>
@@ -47,7 +47,7 @@
       <div id="reportNotifications" class="report-notifications" hidden>
       <button class="btn" id="reportNotificationBtn" type="button" aria-expanded="false" aria-controls="reportNotificationPanel"><span aria-hidden="true">&#128276;</span> Notifications <span id="reportUnreadCount" class="report-unread-count" hidden>0</span></button>
       <section id="reportNotificationPanel" class="report-notification-panel" aria-label="Announcements and report notifications" hidden>
-        <h3>Notifications</h3><p class="sub">New announcements and reported snapshots. Open a notification to mark it as read.</p>
+        <h3>Notifications</h3><p class="sub">New face snapshots, announcements, and reports based on your role. Open a notification to review it.</p>
         <div id="reportNotificationList"></div>
         <button class="btn" id="enableReportNotificationsBtn" type="button">Enable browser notifications</button>
         <p class="sub">Keep this dashboard open for browser notifications. Unread announcements and reports remain available when you return.</p>
@@ -68,8 +68,17 @@
       <div class="grid-main">
         <div>
           <section class="panel" id="camera">
-            <div class="panel-head"><div><h3>Live Camera Feed</h3><div class="sub">ESP32-CAM stream preview</div></div><span class="tag amber" id="feedBadge">NOT CONNECTED</span></div>
+            <div class="panel-head"><div><h3>Live Camera Feed</h3><div class="sub">ESP32-CAM and local USB webcam</div></div><span class="tag amber" id="feedBadge">NOT CONNECTED</span></div>
             <div class="panel-body">
+              <section class="usb-camera-panel" id="usbCameraPanel" aria-label="USB webcam preview">
+                <div class="panel-head"><div><h3>Local USB Webcam</h3><div class="sub">Camera connected to this computer</div><button class="btn usb-camera-collapse" id="toggleUsbCameraPanelBtn" type="button" aria-controls="usbCameraBody" aria-expanded="true">Hide preview</button></div><span class="tag amber" id="usbCameraBadge">NOT CONNECTED</span></div>
+                <div id="usbCameraBody">
+                <div class="camera-frame usb-camera-frame"><video id="usbCameraVideo" autoplay playsinline muted></video><canvas id="usbRecognitionOverlay" aria-hidden="true"></canvas><span class="live-tag" id="usbLiveTag">LIVE</span></div>
+                <div class="field-row"><select class="form-control" id="usbDeviceSelect" aria-label="USB webcam"></select><button class="btn primary" id="connectUsbCameraBtn" type="button">Connect USB Camera</button><button class="btn" id="disconnectUsbCameraBtn" type="button" disabled>Disconnect</button></div>
+                <label class="sub" for="usbAlertCameraSelect">Save alerts under camera record</label><select class="form-control" id="usbAlertCameraSelect"><option value="">Select a saved camera</option></select>
+                <p class="hint" id="usbCameraStatus" role="status">Allow camera access when prompted. Select a saved camera record to enable snapshot alerts.</p>
+                </div>
+              </section>
               <div id="cameraLiveGrid" class="camera-live-grid" hidden></div>
               <div id="singleCameraPreview">
               <div class="camera-frame">
@@ -84,7 +93,7 @@
               <section class="admin-face-tools" id="adminFaceTools" hidden aria-label="Camera snapshot detection">
                 <div class="admin-face-heading"><div><strong>Face monitoring</strong><span class="sub">Green: enrolled face match. Orange: unrecognized face.</span></div><span id="faceRecognitionStatus" class="sub" role="status">Off</span></div>
                 <div class="admin-face-actions"><button class="btn primary" id="toggleFaceRecognitionBtn" type="button" disabled>Start snapshot detection</button></div>
-                <div class="hint">Starts when a saved camera connects. Unmatched faces create snapshot alerts. Captain and admin review them as Recognized or Report. Manage enrollments under Face Management. Keep this dashboard open for monitoring.</div>
+                <div class="hint">Starts when a camera feed connects, even if its URL is not saved. Green boxes are enrolled matches; orange boxes are unknown faces. Save the camera URL to store unknown-face snapshot alerts. Keep this dashboard open for monitoring.</div>
               </section>
               <div id="cameraUrlSettings"><div class="field-row"><input id="cameraUrl" type="url" placeholder="Example: http://192.168.1.102:81/stream" aria-label="ESP32-CAM stream URL"><button class="btn" id="saveUrlBtn">Save camera URL</button></div>
               <div class="hint">On the same Wi-Fi as the camera, enter its stream URL and select Connect Camera. In updated Chrome or Edge, select Allow when asked for Local network access. Use Save camera URL to share it with other signed-in users.</div></div>
@@ -115,7 +124,8 @@
             <div class="panel-head"><div><h3>Alerts</h3><div class="sub">Snapshot review queue and camera status changes</div></div><button class="btn" id="reloadAlertsBtn">Refresh alerts</button></div>
             <div class="panel-body">
               <div class="alert-view-controls"><label for="alertView">Show snapshots</label><select id="alertView" class="form-control"><option value="pending">Pending review</option><option value="archived">Archive</option><option value="reports">Reports</option></select></div>
-              <p class="sub" id="alertViewHint">Review unmatched snapshots as Recognized or Report. Reports remain active until actioned, then move to Archive automatically.</p>
+              <p class="sub" id="alertViewHint">Verify unmatched snapshots as Authorized, Visitor, or Suspected intruder. Reports remain active until actioned, then move to Archive automatically.</p>
+              <div class="alert-bulk-controls" id="alertBulkControls" hidden><label><input id="selectAllAlerts" type="checkbox"> Select all on this page</label><span class="sub" id="selectedAlertCount">0 selected</span><button class="btn" id="archiveSelectedAlertsBtn" type="button">Archive selected</button><button class="btn danger" id="deleteSelectedAlertsBtn" type="button" hidden>Delete selected</button></div>
               <p class="sub" id="alertLoadStatus" role="status"></p><div class="alert-list" id="alertList"><div class="empty">Loading alerts…</div></div>
               <div class="alert-pagination"><button class="btn" id="previousAlertsBtn" type="button" disabled>Previous</button><span class="sub" id="alertPageStatus" role="status">Pending - Page 1</span><button class="btn" id="nextAlertsBtn" type="button" disabled>Next</button></div>
             </div>
@@ -183,9 +193,9 @@
             <div class="panel-body">
               <form id="addPersonForm" class="face-enrollment-form">
                 <h4>Add Person</h4>
-                <label class="sub" for="personName">Pangalan / Full name</label><input id="personName" class="form-control" maxlength="120" autocomplete="off" required>
+                <label class="sub" for="personName">Pangalan / Full name</label><input id="personName" class="form-control" list="enrolledFaceNames" maxlength="120" autocomplete="off" placeholder="Choose an existing name or type a new one" required><datalist id="enrolledFaceNames"></datalist>
                 <label class="sub" for="personPhoto">Picture</label><input id="personPhoto" class="form-control" type="file" accept="image/jpeg,image/png,image/webp" required>
-                <p class="hint">Use one clear, well-lit, front-facing picture containing exactly one person. JPEG, PNG or WebP, up to 4 MB. Face matching runs in this browser using face-api.js.</p>
+                <p class="hint">Upload a JPEG, PNG or WebP picture up to 4 MB. For steadier recognition, add the same person more than once using clear front-facing and slightly left- or right-facing photos. Keep one face visible in each picture.</p>
                 <button class="btn primary" id="addPersonBtn" type="submit">Add Person</button>
               </form>
               <p id="faceManagementStatus" class="sub" role="status" aria-live="polite"></p>
@@ -225,10 +235,10 @@
 </dialog>
 <script src="/mjpeg-avi.js?v=20261114"></script>
 <script src="/device-recordings.js?v=20261114-playback-ui"></script>
-<script src="/script.js?v=20261112-tanod-reports-only"></script>
-<script src="/faces.js?v=20261112-face-management"></script>
-<script src="/camera-grid.js?v=20261112-multi-camera"></script>
-<script src="/report-notifications.js?v=20261112-actioned-archive-en"></script>
+<script src="/script.js?v=20261119-instant-face-notifications"></script>
+<script src="/faces.js?v=20261119-human-only-cpu-check"></script>
+<script src="/camera-grid.js?v=20261118-dedupe-face-overlay"></script>
+<script src="/report-notifications.js?v=20261119-snapshot-notifications-v2"></script>
 <script src="/account-passwords.js?v=20261112-admin-password-reset"></script>
 <script src="/auth.js?v=20261112-tanod-reports-only"></script>
 

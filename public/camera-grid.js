@@ -2,12 +2,32 @@
   const tiles = new Map();
   let processing = false;
   let cursor = 0;
+  let ownerEmailConfigured = null;
   const make = (tag, className, text) => {
     const node = document.createElement(tag);
     node.className = className;
     if (text !== undefined) node.textContent = text;
     return node;
   };
+  async function refreshOwnerEmailStatus() {
+    if (ownerEmailConfigured !== null) return ownerEmailConfigured;
+    try {
+      const response = await fetch('/api/alerts/email-status', { credentials: 'same-origin', cache: 'no-store' });
+      if (!response.ok) throw new Error('Email status unavailable');
+      ownerEmailConfigured = Boolean((await response.json()).configured);
+    } catch { ownerEmailConfigured = false; }
+    return ownerEmailConfigured;
+  }
+  function makeAlertSnapshot(canvas) {
+    const prefix = 'data:image/jpeg;base64,';
+    for (const quality of [0.82, 0.68, 0.54, 0.4, 0.3, 0.2]) {
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      const base64 = dataUrl.startsWith(prefix) ? dataUrl.slice(prefix.length) : '';
+      const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+      if (Math.floor(base64.length * 3 / 4) - padding <= 400 * 1024) return dataUrl;
+    }
+    throw new Error('Camera snapshot is too large to send.');
+  }
   function updateSummary() {
     const count = [...tiles.values()].filter((tile) => tile.connected).length;
     const badge = document.getElementById('feedBadge');
@@ -29,10 +49,14 @@
     tile.image.removeAttribute('src');
     tile.image.style.display = 'none';
     tile.overlay.classList.remove('is-active');
+    window.clearDetectedFaces?.(tile.overlay);
+    const overlayContext = tile.overlay.getContext('2d');
+    overlayContext?.clearRect?.(0, 0, tile.overlay.width, tile.overlay.height);
     tile.live.style.display = 'none';
     tile.placeholder.hidden = false;
     tile.disconnect.disabled = true;
     tile.monitor.textContent = '';
+    tile.faceTracks = [];
   }
   function connect(tile) {
     stop(tile);
@@ -59,6 +83,8 @@
       tile.live.style.display = 'none';
       tile.placeholder.hidden = false;
       tile.overlay.classList.remove('is-active');
+      window.clearDetectedFaces?.(tile.overlay);
+      tile.overlay.getContext('2d')?.clearRect?.(0, 0, tile.overlay.width, tile.overlay.height);
       updateSummary();
       if (tile.timeout) clearTimeout(tile.timeout);
       tile.timeout = null;
@@ -127,7 +153,7 @@
     controls.append(status, buttons);
     const monitor = make('p', 'sub camera-monitor-status', '');
     root.append(heading, frame, controls, monitor);
-    const tile = { camera, root, name, location, image, overlay, placeholder, live, status, monitor, reconnect, disconnect, connected: false, version: 0, timeout: null, lastSnapshotAt: 0 };
+    const tile = { camera, root, name, location, frame, image, overlay, placeholder, live, status, monitor, reconnect, disconnect, connected: false, version: 0, timeout: null, lastSnapshotAt: 0, faceTracks: [] };
     if (window.currentRole === 'admin') {
       const settings = make('details', 'camera-stream-settings');
       const summary = make('summary', '', 'Edit stream URL');
@@ -201,6 +227,61 @@
     }
     if (active.length || !document.getElementById('cameraImg').getAttribute('src')) updateSummary();
   }
+  function boxOf(face) { return face.box; }
+  function preserveFaceBoxes(faces, width, height) {
+    return faces.map((face) => {
+      const source = face.detection?.box || face.box;
+      let box = source && { x: Number(source.x), y: Number(source.y), width: Number(source.width), height: Number(source.height) };
+      if (box && Object.values(box).every(Number.isFinite) && box.x >= 0 && box.y >= 0
+        && box.x <= 1 && box.y <= 1 && box.width <= 1 && box.height <= 1) {
+        box = { x: box.x * width, y: box.y * height, width: box.width * width, height: box.height * height };
+      }
+      return box && Object.values(box).every(Number.isFinite) && box.width > 0 && box.height > 0 ? { ...face, box } : face;
+    });
+  }
+  function overlap(a, b) {
+    const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.width, b.x + b.width), y2 = Math.min(a.y + a.height, b.y + b.height);
+    const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    return intersection / (a.width * a.height + b.width * b.height - intersection || 1);
+  }
+  function stabilizeFaces(tile, faces) {
+    const previous = tile.faceTracks || [];
+    const used = new Set();
+    const next = faces.map((face) => {
+      const box = boxOf(face);
+      if (!box) return face;
+      let best = -1, score = 0;
+      previous.forEach((track, index) => {
+        if (used.has(index)) return;
+        const candidate = overlap(track.box, box);
+        if (candidate > score) { score = candidate; best = index; }
+      });
+      const old = score >= 0.2 ? previous[best] : null;
+      if (old) used.add(best);
+      const smooth = old ? {
+        x: old.box.x * 0.78 + box.x * 0.22,
+        y: old.box.y * 0.78 + box.y * 0.22,
+        width: old.box.width * 0.78 + box.width * 0.22,
+        height: old.box.height * 0.78 + box.height * 0.22
+      } : { ...box };
+      const candidateName = face.matched ? face.matchName : '';
+      const sameCandidate = Boolean(old?.face.matched && candidateName && old.face.matchName === candidateName);
+      const matchStreak = face.matched ? (sameCandidate ? (old.face.matchStreak || 1) + 1 : 1) : 0;
+      const confirmed = Boolean(face.matched && matchStreak >= 3);
+      return {
+        ...face, matched: confirmed, identityPending: Boolean(face.matched && !confirmed),
+        matchName: confirmed ? face.matchName : '', candidateName, matchStreak,
+        detection: face.detection ? { ...face.detection, box: smooth } : undefined, box: smooth, missed: 0
+      };
+    });
+    previous.forEach((track, index) => {
+      // Hold the last box briefly through skipped/slow ESP32 MJPEG frames.
+      if (!used.has(index) && track.missed < 4) next.push({ ...track.face, detection: track.face.detection ? { ...track.face.detection, box: track.box } : undefined, box: track.box, missed: track.missed + 1 });
+    });
+    tile.faceTracks = next.map((face) => ({ face, box: { ...boxOf(face) }, missed: face.missed || 0 }));
+    return next;
+  }
   async function detectNext() {
     if (processing || !window.currentRole) return;
     const connected = [...tiles.values()].filter((tile) => tile.connected);
@@ -209,26 +290,56 @@
     const version = tile.version;
     processing = true;
     try {
+      if (!tile.connected || version !== tile.version) return;
       await loadFaceModels();
       if (!tile.connected || version !== tile.version) return;
       const canvas = document.createElement('canvas');
       const scale = Math.min(1, 960 / tile.image.naturalWidth);
       canvas.width = Math.round(tile.image.naturalWidth * scale);
       canvas.height = Math.round(tile.image.naturalHeight * scale);
-      canvas.getContext('2d').drawImage(tile.image, 0, 0, canvas.width, canvas.height);
-      const faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.65 })).withFaceLandmarks().withFaceDescriptors();
-      const matched = await window.FaceManagement.classify(faces);
+      const context = canvas.getContext('2d');
+      let faces = [];
+      for (const variant of [
+        { filter: 'none', threshold: 0.18 },
+        { filter: 'brightness(1.15) contrast(1.08)', threshold: 0.15 },
+        { filter: 'brightness(0.85) contrast(1.12)', threshold: 0.15 }
+      ]) {
+        context.clearRect?.(0, 0, canvas.width, canvas.height);
+        context.filter = variant.filter;
+        context.drawImage(tile.image, 0, 0, canvas.width, canvas.height);
+        faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: variant.threshold })).withFaceLandmarks().withFaceDescriptors();
+        if (faces.length) break;
+      }
+      context.filter = 'none';
+      const matched = stabilizeFaces(tile, await window.FaceManagement.classify(preserveFaceBoxes(faces, canvas.width, canvas.height)));
       if (!tile.connected || version !== tile.version) return;
+      await refreshOwnerEmailStatus();
+      if (!tile.connected || version !== tile.version) return;
+      const drawableBoxes = matched.filter((face) => {
+        const box = boxOf(face);
+        return box && [box.x, box.y, box.width, box.height].every(Number.isFinite) && box.width > 0 && box.height > 0;
+      }).length;
       drawDetectedFaces(matched, canvas.width, canvas.height, tile.overlay);
-      tile.monitor.textContent = '';
-      const unmatched = matched.filter((face) => !face.matched);
+      const unmatched = matched.filter((face) => !face.matched && !face.identityPending);
+      const closest = unmatched.find((face) => face.nearestName);
+      const checking = matched.filter((face) => face.identityPending).length;
+      tile.monitor.textContent = !matched.length
+        ? 'No face detected in frame. Check camera angle, lighting, and entry-area coverage.'
+        : matched[0]?.enrollmentCount === 0
+        ? 'No enrolled faces loaded. Add a face in Face Management.'
+        : `${matched.filter((face) => face.matched).length} recognized · ${unmatched.length} unknown · ${ownerEmailConfigured ? 'owner email ready' : 'owner email not configured'} · overlay boxes ${drawableBoxes}/${matched.length}${checking ? ` · ${checking} checking identity` : ''}${closest ? ` · closest to ${closest.nearestName}: ${closest.matchDistance.toFixed(2)} (limit ${closest.matchLimit.toFixed(2)}, photo support ${closest.matchSupport})` : ''}`;
       if (!unmatched.length || Date.now() - tile.lastSnapshotAt < 60000) return;
-      let snapshot = canvas.toDataURL('image/jpeg', 0.75);
-      if (snapshot.length > 540000) snapshot = canvas.toDataURL('image/jpeg', 0.4);
+      const snapshot = makeAlertSnapshot(canvas);
       const response = await fetch('/api/alerts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cameraId: Number(tile.camera.id), snapshot, faceCount: Math.min(50, unmatched.length) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not save snapshot.');
       tile.lastSnapshotAt = Date.now();
+      ownerEmailConfigured = Boolean(result.emailConfigured);
+      tile.monitor.textContent = result.duplicate
+        ? 'Recent snapshot already queued; repeat email suppressed for 60 seconds'
+        : result.emailSent ? 'Unknown-face snapshot saved and emailed to owner'
+        : result.emailConfigured ? 'Snapshot saved, but email delivery failed. Check the Node server log.'
+        : 'Snapshot saved; owner email is not configured';
       void loadAlerts();
     } catch (error) {
       if (version === tile.version) {

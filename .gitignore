@@ -8,6 +8,7 @@
 /ESP32/**/secrets.h
 
 node_modules/
+.venv-deepface/
 .env
 .env.*
 !.env.example
