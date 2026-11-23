@@ -247,15 +247,28 @@
   window.addEventListener('dashboard:route', (event) => {
     if (event.detail?.route === '#recordingHistoryPanel' || event.detail?.route === '#pastFootagePanel') void history();
   });
-  // Retry initial route detection in case the layout event fires before authentication completes.
+  // Load recordings reliably after sign-in and when either recordings page is selected.
+  const recordingHistoryPanel = $('recordingHistoryPanel');
   const pastFootagePanel = $('pastFootagePanel');
-  const loadSelectedPastFootage = () => {
-    if (window.currentRole && (location.hash === '#pastFootagePanel' || pastFootagePanel?.classList.contains('route-selected'))) void history();
+  const recordingsRouteIsActive = () => location.hash === '#recordingHistoryPanel'
+    || location.hash === '#pastFootagePanel'
+    || recordingHistoryPanel?.classList.contains('route-selected')
+    || pastFootagePanel?.classList.contains('route-selected');
+  const loadSelectedRecordingsRoute = () => {
+    if (window.currentRole && recordingsRouteIsActive()) void history();
   };
-  if (pastFootagePanel) {
-    new MutationObserver(loadSelectedPastFootage).observe(pastFootagePanel, { attributes: true, attributeFilter: ['class'] });
-    loadSelectedPastFootage();
+  const routeObserver = new MutationObserver(loadSelectedRecordingsRoute);
+  for (const panel of [recordingHistoryPanel, pastFootagePanel]) {
+    if (panel) routeObserver.observe(panel, { attributes: true, attributeFilter: ['class'] });
   }
+  loadSelectedRecordingsRoute();
+  let routeWaits = 0;
+  const waitForRecordingsRoute = setInterval(() => {
+    if (window.currentRole && recordingsRouteIsActive()) {
+      clearInterval(waitForRecordingsRoute);
+      void history();
+    } else if (++routeWaits >= 120) clearInterval(waitForRecordingsRoute);
+  }, 250);
   // Clear the one-time token and release video memory when a user signs out.
   new MutationObserver(() => {
     if ($('app').hidden || getComputedStyle($('app')).display === 'none') { $('deviceTokenResult').textContent = ''; if (!dialog.hidden) { dialog.hidden = true; reset(true); } }
