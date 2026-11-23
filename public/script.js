@@ -715,10 +715,10 @@ function drawDetectedFaces(detections, width, height, overlay = $('recognitionOv
     const old = bestOverlap >= 0.12 ? previous[bestIndex] : null;
     if (old) used.add(bestIndex);
     const smooth = old ? {
-      x: old.box.x * 0.65 + box.x * 0.35,
-      y: old.box.y * 0.65 + box.y * 0.35,
-      width: old.box.width * 0.65 + box.width * 0.35,
-      height: old.box.height * 0.65 + box.height * 0.35
+      x: old.box.x * 0.75 + box.x * 0.25,
+      y: old.box.y * 0.75 + box.y * 0.25,
+      width: old.box.width * 0.75 + box.width * 0.25,
+      height: old.box.height * 0.75 + box.height * 0.25
     } : box;
     const sameFace = old && faceDescriptorDistance(face.descriptor, old.face.descriptor) <= 0.48;
     const stableIdentity = !face.matched && sameFace && old.face.matched ? {
@@ -782,20 +782,22 @@ async function recognizeCameraFaces() {
     const frameWidth = usbCameraActive ? stream.videoWidth : stream.naturalWidth;
     const frameHeight = usbCameraActive ? stream.videoHeight : stream.naturalHeight;
     const canvas = document.createElement('canvas');
-    const scale = Math.min(1, 960 / frameWidth);
+    // Large MJPEG frames make descriptor extraction expensive on ordinary
+    // laptops. Keep enough pixels for stable face recognition without
+    // repeatedly running the detector at nearly full camera resolution.
+    const scale = Math.min(1, 640 / frameWidth);
     canvas.width = Math.round(frameWidth * scale);
     canvas.height = Math.round(frameHeight * scale);
     const context = canvas.getContext('2d');
     let faces = [];
     for (const variant of [
-      { filter: 'none', threshold: 0.18 },
-      { filter: 'brightness(1.15) contrast(1.08)', threshold: 0.15 },
-      { filter: 'brightness(0.85) contrast(1.12)', threshold: 0.15 }
+      { filter: 'none', inputSize: 416, threshold: 0.45 },
+      { filter: 'brightness(1.12) contrast(1.06)', inputSize: 320, threshold: 0.38 }
     ]) {
       context.clearRect?.(0, 0, canvas.width, canvas.height);
       context.filter = variant.filter;
       context.drawImage(stream, 0, 0, canvas.width, canvas.height);
-      faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: variant.threshold })).withFaceLandmarks().withFaceDescriptors();
+      faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: variant.inputSize, scoreThreshold: variant.threshold })).withFaceLandmarks().withFaceDescriptors();
       if (faces.length) break;
     }
     context.filter = 'none';
@@ -847,7 +849,7 @@ async function startFaceRecognition() {
     if (!connected || cameraAttempt !== attempt || generation !== faceRecognitionGeneration) return;
     faceRecognitionActive = true;
     button.textContent = 'Stop snapshot detection';
-    faceRecognitionTimer = setInterval(recognizeCameraFaces, 800);
+    faceRecognitionTimer = setInterval(recognizeCameraFaces, 1000);
     updateFaceRecognitionCount();
     void recognizeCameraFaces();
   } catch (error) { $('faceRecognitionStatus').textContent = `Could not start detection: ${error.message}`; }

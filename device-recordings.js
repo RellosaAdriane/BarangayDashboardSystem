@@ -56,7 +56,7 @@ module.exports = function registerDeviceRecordings(app, pool, requireAuth, allow
       || !/^[a-f0-9]{32}$/.test(recordingId) || !iso.test(startedAt) || !iso.test(endedAt)
       || !Number.isFinite(duration) || duration < 1 || duration > 120 || end.getTime() > Date.now() + 300000
       || !Number.isSafeInteger(fileSize) || fileSize < 224 || fileSize > MAX_BYTES) {
-      return res.status(400).json({ error: 'Send a recording ID, UTC start/end times (1–120 seconds), and an AVI size up to 64 MiB.' });
+      return res.status(400).json({ error: 'Send a recording ID, UTC start/end times (1â€“120 seconds), and an AVI size up to 64 MiB.' });
     }
     const camera = req.deviceCameraId;
     const { rows: [completed] } = await pool.query('SELECT id FROM camera_recordings WHERE camera_id = $1 AND device_recording_id = $2', [camera, recordingId]);
@@ -115,10 +115,46 @@ module.exports = function registerDeviceRecordings(app, pool, requireAuth, allow
       WHERE r.id = $1 AND r.archived_at IS NULL AND c.is_enabled = true AND c.is_archived = false`, [req.params.id]);
     if (!row) return res.status(404).json({ error: 'Recording not found.' });
     res.set('Cache-Control', 'private, no-store').json(row.storage_provider === 'r2' ? {
-      format: 'mjpeg-avi', url: await storage.videoUrl(row.storage_path), fileName: row.file_name, size: Number(row.file_size_bytes)
+      // Same-origin playback avoids browser CORS failures on R2 signed URLs.
+      format: 'mjpeg-avi', url: `/api/recordings/${row.id}/video`, fileName: row.file_name, size: Number(row.file_size_bytes)
     } : { format: 'video', url: `/api/recordings/${row.id}/video` });
   }));
+  app.get('/api/recordings/:id/video', requireAuth, async (req, res, next) => {
+    try {
+      if (!validId(req.params.id)) return res.sendStatus(400);
+      await ensureSchema();
+      const { rows: [row] } = await pool.query(`SELECT r.storage_provider, r.storage_path, r.file_name
+        FROM camera_recordings r JOIN cameras c ON c.id = r.camera_id
+        WHERE r.id = $1 AND r.archived_at IS NULL AND c.is_enabled = true AND c.is_archived = false`, [req.params.id]);
+      if (!row) return res.status(404).json({ error: 'Recording not found.' });
+      // Legacy Supabase and local recordings continue through the existing
+      // Express handler below; R2 playback is streamed through this origin.
+      if (row.storage_provider !== 'r2') return next();
+      const range = /^bytes=\d*-\d*$/.test(req.headers.range || '') ? req.headers.range : undefined;
+      const object = await storage.get(row.storage_path, range);
+      if (object.ContentRange) res.set('Content-Range', object.ContentRange);
+      res.status(object.$metadata?.httpStatusCode === 206 ? 206 : 200).set({
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `inline; filename="${String(row.file_name).replace(/[\r\n"\\]/g, '_')}"`,
+        'Content-Length': String(object.ContentLength),
+        'Content-Type': 'video/x-msvideo',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      object.Body.on('error', (error) => {
+        console.error('Unable to stream R2 recording:', error.name);
+        if (!res.headersSent) res.status(502).json({ error: 'Unable to stream this recording.' });
+        else res.destroy(error);
+      });
+      object.Body.pipe(res);
+    } catch (error) {
+      console.error('Unable to stream R2 recording:', error.name || error.code);
+      if (!res.headersSent) res.status(502).json({ error: 'Unable to stream this recording. Refresh the footage list and try again.' });
+      else res.destroy(error);
+    }
+  });
   // Existing browser recordings and archive routes also need the provider columns.
   app.use('/api/recordings', requireAuth, (req, res, next) => handle(async () => next())(req, res));
-  return { ensureSchema, storage };
+  return { ensureSchema, storage, deviceAuth };
 };
+

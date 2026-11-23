@@ -20,6 +20,7 @@ module.exports = function createR2Storage(env = process.env) {
   return {
     uploadUrl: (key, size) => getSignedUrl(connection(), new PutObjectCommand({ ...object(key), ContentType: 'video/x-msvideo', ContentLength: size, IfNoneMatch: '*' }), { expiresIn: 900, signableHeaders: new Set(['content-type']) }),
     videoUrl: (key, download = false) => getSignedUrl(connection(), new GetObjectCommand({ ...object(key), ResponseContentType: 'video/x-msvideo', ResponseContentDisposition: `${download ? 'attachment' : 'inline'}; filename="${key.split('/').pop()}"` }), { expiresIn: 900 }),
+    get: (key, range) => connection().send(new GetObjectCommand({ ...object(key), ...(range ? { Range: range } : {}) })),
     head: (key) => connection().send(new HeadObjectCommand(object(key))),
     // A small range validates the RIFF/AVI header without passing video through Vercel.
     async header(key) {
@@ -29,3 +30,4 @@ module.exports = function createR2Storage(env = process.env) {
     remove: (key) => connection().send(new DeleteObjectCommand(object(key)))
   };
 };
+
