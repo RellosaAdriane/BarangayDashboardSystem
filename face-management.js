@@ -40,7 +40,7 @@ module.exports = function registerFaceManagement(app, pool, requireAuth, allow) 
   }));
   app.post('/api/faces', allow('admin'), parsePhoto, handle(async (req, res) => {
     const DUPLICATE_FACE_DISTANCE = 0.35;
-    const SAME_PERSON_DISTANCE = 0.48;
+    const SAME_PERSON_DISTANCE = 0.6;
     const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
     let descriptor;
     try { descriptor = JSON.parse(req.body?.descriptor); } catch { /* Validate below. */ }
