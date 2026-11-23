@@ -254,16 +254,17 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
   }));
 
   app.get('/api/alerts', requireAuth, handle(async (req, res) => {
-    const view = req.query.view || (req.session.user.role === 'tanod' ? 'reports' : 'pending');
+    const view = req.query.view || 'reports';
     if (req.session.user.role === 'tanod' && view !== 'reports') return res.status(403).json({ error: 'Tanod accounts can only view Reports.' });
     if (view === 'archived' && req.session.user.role === 'captain') return res.status(403).json({ error: 'Archive is unavailable for Captain accounts.' });
     const offset = Number(req.query.offset || 0);
     if (!['pending', 'archived', 'reports'].includes(view) || !/^\d+$/.test(String(req.query.offset || 0)) || !Number.isSafeInteger(offset) || offset < 0) {
       return res.status(400).json({ error: 'Choose Pending, Archive or Reports and a valid page.' });
     }
-    // Reports stay active until actioned; the action timestamp archives them
-    // automatically without changing the original review or snapshot.
-    const statuses = view === 'archived' ? ['approved', 'dismissed', 'recognized', 'unrecognized', 'report'] : view === 'reports' ? ['report'] : ['pending'];
+    // Reports combines snapshots awaiting review with confirmed reports needing follow-up.
+    // Tanod accounts see confirmed reports; captains and admins also see pending snapshots.
+    const statuses = view === 'archived' ? ['approved', 'dismissed', 'recognized', 'unrecognized', 'report']
+      : view === 'reports' ? (req.session.user.role === 'tanod' ? ['report'] : ['pending', 'report']) : ['pending'];
     const { rows } = await pool.query(`SELECT a.id, a.camera_id AS "cameraId", c.name AS "cameraName", c.location,
       a.detected_at AS "detectedAt", a.face_count AS "faceCount", a.status,
       a.reviewed_at AS "reviewedAt", a.review_note AS "reviewNote", u.full_name AS "reviewedBy",
@@ -272,7 +273,7 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
       LEFT JOIN users u ON u.id = a.reviewed_by
       LEFT JOIN users actor ON actor.id = a.actioned_by
       WHERE a.status = ANY($1::text[])
-      ${view === 'reports' ? 'AND a.actioned_at IS NULL' : view === 'archived' ? "AND (a.status <> 'report' OR a.actioned_at IS NOT NULL)" : ''}
+      ${view === 'reports' ? "AND (a.status <> 'report' OR a.actioned_at IS NULL)" : view === 'archived' ? "AND (a.status <> 'report' OR a.actioned_at IS NOT NULL)" : ''}
       ORDER BY a.detected_at DESC, a.id DESC LIMIT 21 OFFSET $2`, [statuses, offset]);
     res.set('Cache-Control', 'no-store').json(rows);
   }));
