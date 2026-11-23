@@ -56,7 +56,7 @@ module.exports = function registerDeviceRecordings(app, pool, requireAuth, allow
       || !/^[a-f0-9]{32}$/.test(recordingId) || !iso.test(startedAt) || !iso.test(endedAt)
       || !Number.isFinite(duration) || duration < 1 || duration > 120 || end.getTime() > Date.now() + 300000
       || !Number.isSafeInteger(fileSize) || fileSize < 224 || fileSize > MAX_BYTES) {
-      return res.status(400).json({ error: 'Send a recording ID, UTC start/end times (1â€“120 seconds), and an AVI size up to 64 MiB.' });
+      return res.status(400).json({ error: 'Send a recording ID, UTC start/end times (1-120 seconds), and an AVI size up to 64 MiB.' });
     }
     const camera = req.deviceCameraId;
     const { rows: [completed] } = await pool.query('SELECT id FROM camera_recordings WHERE camera_id = $1 AND device_recording_id = $2', [camera, recordingId]);

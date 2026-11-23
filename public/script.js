@@ -39,7 +39,7 @@ function formatDate(value) {
 function setDate() {
   const now = new Date();
   $('sideDate').textContent = now.toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'});
-  $('todayText').textContent = now.toLocaleDateString(undefined, {weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' Â· Security overview';
+  $('todayText').textContent = now.toLocaleDateString(undefined, {weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' - Security overview';
 }
 function updateStats() {
   $('deviceStatus').textContent = connected ? 'Connected' : 'Offline';
@@ -156,7 +156,7 @@ function snapshotPreviewMarkup(item) {
       <div class="alert-review-actions"><button class="btn primary" name="status" value="recognized" type="submit">Authorized</button>
       <button class="btn" name="status" value="dismissed" type="submit">Visitor</button>
       <button class="btn" name="status" value="report" type="submit">Suspected intruder</button></div>
-      <p class="hint">Choose the ownerâ€™s verification result. Authorized and Visitor snapshots move to Archive. Suspected intruder alerts stay in Reports until marked as actioned.</p>
+      <p class="hint">Choose the owner's verification result. Authorized and Visitor snapshots move to Archive. Suspected intruder alerts stay in Reports until marked as actioned.</p>
       <span class="sub" role="status"></span></form>` : pending ? '<p>Awaiting captain or admin review.</p>' : item.status === 'report' && !item.actionedAt ? '<p>Flagged for follow-up.</p>' : ''}</div></article>`;
 }
 function bindSnapshotReview(root) {
@@ -280,7 +280,7 @@ function observeCameraStatuses(cameras) {
       cameraAlerts.unshift({
         type: isOnline ? 'camera-online' : 'camera-offline',
         title: isOnline ? 'Camera back online' : 'Camera offline',
-        details: [camera.name, camera.location].filter(Boolean).join(' Â· '),
+        details: [camera.name, camera.location].filter(Boolean).join(' - '),
         time: camera.lastCheckedAt || new Date().toISOString()
       });
     }
@@ -351,7 +351,7 @@ async function updateUsbCameraChoices(cameras = usbCameraRecords) {
   cameras.filter((camera) => camera.isEnabled !== false && camera.isEnabled !== 0).forEach((camera) => {
     const option = document.createElement('option');
     option.value = String(camera.id);
-    option.textContent = `${camera.name}${camera.location ? ` Â· ${camera.location}` : ''}`;
+    option.textContent = `${camera.name}${camera.location ? ` - ${camera.location}` : ''}`;
     alertSelect.appendChild(option);
   });
   if (cameras.some((camera) => String(camera.id) === selectedAlertCamera)) alertSelect.value = selectedAlertCamera;
@@ -367,12 +367,14 @@ async function connectUsbCamera() {
   const attempt = ++cameraAttempt;
   stopFaceRecognition();
   $('connectUsbCameraBtn').disabled = true;
-  $('usbCameraStatus').textContent = 'Requesting USB camera accessâ€¦';
+  $('usbCameraStatus').textContent = 'Requesting USB camera access...';
   try {
     const deviceId = $('usbDeviceSelect').value;
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } }
+      // Let the selected webcam choose its native field of view and aspect
+      // ratio; forcing 1280x720 can make some 4:3 webcams crop in too tightly.
+      video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}) }
     });
     if (attempt !== cameraAttempt) { stream.getTracks().forEach((track) => track.stop()); return; }
     usbCameraStream = stream;
@@ -389,7 +391,7 @@ async function connectUsbCamera() {
     connected = true;
     $('usbCameraPanel').hidden = false;
     $('usbLiveTag').style.display = 'block';
-    $('usbCameraBadge').textContent = 'CONNECTED Â· LOCAL';
+    $('usbCameraBadge').textContent = 'CONNECTED - LOCAL';
     $('usbCameraBadge').className = 'tag green';
     $('disconnectUsbCameraBtn').disabled = false;
     $('connectUsbCameraBtn').disabled = false;
@@ -451,7 +453,7 @@ if (typeof window.addEventListener === 'function'
   $('refreshUsbCamerasBtn').addEventListener('click', async () => {
     const button = $('refreshUsbCamerasBtn');
     button.disabled = true;
-    $('usbCameraStatus').textContent = 'Requesting camera access to refresh the available camerasâ€¦';
+    $('usbCameraStatus').textContent = 'Requesting camera access to refresh the available cameras...';
     try {
       // Browsers hide camera labels and sometimes device IDs until permission
       // has been granted. Open the default camera briefly, then enumerate again.
@@ -503,7 +505,7 @@ async function connectCamera() {
   connected = false;
   $('toggleFaceRecognitionBtn').disabled = true;
   updateStats();
-  $('cameraStatus').textContent = 'Status: Trying to load camera feedâ€¦';
+  $('cameraStatus').textContent = 'Status: Trying to load camera feed...';
   img.style.display = 'block';
   $('cameraPlaceholder').style.display = 'none';
   $('liveTag').style.display = 'none';
@@ -688,9 +690,21 @@ function drawDetectedFaces(detections, width, height, overlay = $('recognitionOv
   if (overlay.width !== width) overlay.width = width;
   if (overlay.height !== height) overlay.height = height;
   if (overlay.style) Object.assign(overlay.style, {
-    display: 'block', position: 'absolute', inset: '0', width: '100%', height: '100%',
-    zIndex: '10', pointerEvents: 'none', objectFit: 'contain'
+    display: 'block', position: 'absolute', inset: 'auto', width: 'auto', height: 'auto',
+    zIndex: '10', pointerEvents: 'none', objectFit: 'fill', transform: 'none'
   });
+  // The camera preview uses object-fit: contain. Keep the canvas at the same
+  // contained size instead of stretching 4:3 frames to the 16:9 panel.
+  const frame = overlay.parentElement;
+  const frameWidth = frame?.clientWidth || width;
+  const frameHeight = frame?.clientHeight || height;
+  const fit = Math.min(frameWidth / width, frameHeight / height);
+  const displayWidth = width * fit;
+  const displayHeight = height * fit;
+  overlay.style.left = `${(frameWidth - displayWidth) / 2}px`;
+  overlay.style.top = `${(frameHeight - displayHeight) / 2}px`;
+  overlay.style.width = `${displayWidth}px`;
+  overlay.style.height = `${displayHeight}px`;
   overlay.classList.add('is-active');
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, width, height);
@@ -747,13 +761,14 @@ function drawDetectedFaces(detections, width, height, overlay = $('recognitionOv
   for (const face of visibleFaces) {
     const box = face.detection?.box || face.box;
     if (!box) continue;
-    const side = Math.min(Math.max(box.width, box.height), width, height);
-    const x = Math.max(0, Math.min(width - side, box.x + (box.width - side) / 2));
-    const y = Math.max(0, Math.min(height - side, box.y + (box.height - side) / 2));
+    const x = Math.max(0, Math.min(width, box.x));
+    const y = Math.max(0, Math.min(height, box.y));
+    const boxWidth = Math.max(0, Math.min(width - x, box.width));
+    const boxHeight = Math.max(0, Math.min(height - y, box.height));
     ctx.strokeStyle = face.matched ? '#86efac' : face.identityPending ? '#facc15' : '#ff9800';
-    ctx.strokeRect(x, y, side, side);
+    ctx.strokeRect(x, y, boxWidth, boxHeight);
     ctx.shadowBlur = 0;
-    const label = face.matched ? `Recognized: ${face.matchName}` : face.identityPending ? 'Checking identityâ€¦' : 'Unknown person';
+    const label = face.matched ? `Recognized: ${face.matchName}` : face.identityPending ? 'Checking identity...' : 'Unknown person';
     const labelWidth = Math.min(width, ctx.measureText(label).width + 10);
     const labelX = Math.min(x, width - labelWidth);
     const labelY = Math.max(0, y - 25);
@@ -811,7 +826,7 @@ async function recognizeCameraFaces() {
       ? 'No face detected in frame. Check camera angle, lighting, and entry-area coverage.'
       : detections[0]?.enrollmentCount === 0
       ? 'No enrolled faces loaded'
-      : `${detections.length - unmatched.length} recognized, ${unmatched.length} unrecognized Â· ${ownerEmailStatusLabel()} - Monitoring on`;
+      : `${detections.length - unmatched.length} recognized, ${unmatched.length} unrecognized - ${ownerEmailStatusLabel()} - Monitoring on`;
     if (!unmatched.length || Date.now() - lastSnapshotAt < 60000) return;
     if (!cameraId) {
       const status = usbCameraActive ? $('usbCameraStatus') : $('faceRecognitionStatus');
@@ -940,7 +955,7 @@ $('disconnectBtn').addEventListener('click', () => {
   $('cameraImg').removeAttribute('src');
   $('cameraImg').style.display = 'none';
   $('cameraPlaceholder').style.display = 'flex';
-  $('cameraPlaceholder').innerHTML = '<div class="cam-icon">â–£</div><strong>Camera feed disconnected</strong><span>Enter your ESP32-CAM stream URL below,<br>then select Connect Camera.</span>';
+  $('cameraPlaceholder').innerHTML = '<div class="cam-icon">[camera]</div><strong>Camera feed disconnected</strong><span>Enter your ESP32-CAM stream URL below,<br>then select Connect Camera.</span>';
   $('liveTag').style.display = 'none';
   $('cameraStatus').textContent = 'Status: Disconnected';
   stopFaceRecognition();
@@ -957,7 +972,7 @@ $('cameraFullscreenBtn').addEventListener('click', async () => {
 $('refreshBtn').addEventListener('click', () => { setDate(); loadAlerts(); });
 function formatRecordingTime(value) {
   const date = new Date(String(value || '').replace(' ', 'T'));
-  return Number.isNaN(date.getTime()) ? 'â€”' : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
 }
 function formatRecordingSize(bytes) {
   const size = Number(bytes) || 0;
@@ -978,7 +993,7 @@ async function readRecordingResponse(response) {
 }
 async function loadArchivedRecordings() {
   const rows = $('recordingArchiveRows');
-  rows.innerHTML = '<tr><td colspan="6" class="empty">Loading archived clipsâ€¦</td></tr>';
+  rows.innerHTML = '<tr><td colspan="6" class="empty">Loading archived clips...</td></tr>';
   try {
     const response = await fetch(`${API_BASE}/recordings?archived=true`);
     const clips = await readRecordingResponse(response);

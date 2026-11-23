@@ -201,7 +201,7 @@
           nameOptions.appendChild(option);
         }
       }
-      byId('enrolledFaceCount').textContent = `${groups.size} people Â· ${people.length} photos`;
+      byId('enrolledFaceCount').textContent = `${groups.size} people - ${people.length} photos`;
       list.replaceChildren();
       if (!groups.size) {
         const empty = document.createElement('p');
