@@ -74,7 +74,8 @@ function renderAlertFeed() {
   $('alertLoadStatus').textContent = '';
   const cards = snapshotAlerts.map((item) => {
     const id = Number(item.id);
-    return `<article class="snapshot-alert snapshot-alert-summary"><label class="snapshot-select"><input type="checkbox" data-select-alert="${id}" aria-label="Select snapshot alert"></label><button type="button" class="snapshot-thumbnail" data-preview-alert="${id}" aria-label="Preview snapshot"><img src="/api/alerts/${id}/snapshot" loading="lazy" alt="Camera snapshot"></button><div class="snapshot-summary-text"><strong>Face snapshot</strong><p>${escapeHtml(item.cameraName)}</p><time>${escapeHtml(formatDate(item.detectedAt))}</time><span class="tag ${alertStatusClass(item.status)}">${escapeHtml(item.status)}</span>${reportActionBadge(item)}</div><button class="btn" type="button" data-preview-alert="${id}">Preview</button></article>`;
+    const title = item.reviewNote === 'Marked unrecognized from the email review link.' ? 'Unfamiliar face' : 'Face snapshot';
+    return `<article class="snapshot-alert snapshot-alert-summary"><label class="snapshot-select"><input type="checkbox" data-select-alert="${id}" aria-label="Select snapshot alert"></label><button type="button" class="snapshot-thumbnail" data-preview-alert="${id}" aria-label="Preview snapshot"><img src="/api/alerts/${id}/snapshot" loading="lazy" alt="Camera snapshot"></button><div class="snapshot-summary-text"><strong>${title}</strong><p>${escapeHtml(item.cameraName)}</p><time>${escapeHtml(formatDate(item.detectedAt))}</time><span class="tag ${alertStatusClass(item.status)}">${escapeHtml(item.status)}</span>${reportActionBadge(item)}</div><button class="btn" type="button" data-preview-alert="${id}">Preview</button></article>`;
   });
   const statusCards = alertView === 'pending' && alertPage === 0 ? cameraAlerts.slice(0, 5).map((entry) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(entry.title)}</strong><p>${escapeHtml(entry.details)}</p></div><span class="alert-time">${escapeHtml(formatDate(entry.time))}</span></div>`) : [];
   list.innerHTML = [...cards, ...statusCards].join('') || `<div class="empty">${alertView === 'archived' ? 'No archived snapshots yet. Reviewed snapshots appear here automatically.' : alertView === 'reports' ? 'No snapshots marked Report.' : 'No snapshots waiting for review.'}</div>`;
@@ -794,7 +795,7 @@ function drawDetectedFaces(detections, width, height, overlay = $('recognitionOv
     ctx.strokeStyle = face.matched ? '#86efac' : face.identityPending ? '#facc15' : '#ff9800';
     ctx.strokeRect(x, y, boxWidth, boxHeight);
     ctx.shadowBlur = 0;
-    const label = face.matched ? `Recognized: ${face.matchName}` : face.identityPending ? 'Checking identity...' : 'Unknown person';
+    const label = face.matched ? `Recognized: ${face.matchName}` : face.identityPending ? 'Checking identity...' : 'Unfamiliar face';
     const labelWidth = Math.min(width, ctx.measureText(label).width + 10);
     const labelX = Math.min(x, width - labelWidth);
     const labelY = Math.max(0, y - 25);
@@ -867,7 +868,7 @@ async function recognizeCameraFaces() {
     ownerEmailConfigured = Boolean(result.emailConfigured);
     $('faceRecognitionStatus').textContent = result.duplicate
       ? 'Recent snapshot already queued; repeat email suppressed for 60 seconds'
-      : result.emailSent ? 'Unknown-face snapshot saved and emailed to owner'
+      : result.emailSent ? 'Unfamiliar-face snapshot saved and emailed to owner'
       : result.emailConfigured ? 'Snapshot saved, but email delivery failed. Check the Node server log.'
       : 'Snapshot saved; owner email is not configured';
     await loadAlerts();
