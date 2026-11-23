@@ -194,8 +194,8 @@
               <form id="addPersonForm" class="face-enrollment-form">
                 <h4>Add Person</h4>
                 <label class="sub" for="personName">Pangalan / Full name</label><input id="personName" class="form-control" list="enrolledFaceNames" maxlength="120" autocomplete="off" placeholder="Choose an existing name or type a new one" required><datalist id="enrolledFaceNames"></datalist>
-                <label class="sub" for="personPhoto">Picture</label><input id="personPhoto" class="form-control" type="file" accept="image/jpeg,image/png,image/webp" required>
-                <p class="hint">Upload a JPEG, PNG or WebP picture up to 4 MB. For steadier recognition, add the same person more than once using clear front-facing and slightly left- or right-facing photos. Keep one face visible in each picture.</p>
+                <label class="sub" for="personPhoto">Pictures</label><input id="personPhoto" class="form-control" type="file" accept="image/jpeg,image/png,image/webp" multiple required>
+                <p class="hint">Select up to 10 JPEG, PNG or WebP pictures (4 MB each). For steadier recognition, use clear front-facing and slightly left- or right-facing photos of the same person. Keep one face visible in each picture.</p>
                 <button class="btn primary" id="addPersonBtn" type="submit">Add Person</button>
               </form>
               <p id="faceManagementStatus" class="sub" role="status" aria-live="polite"></p>
@@ -236,7 +236,7 @@
 <script src="/mjpeg-avi.js?v=20261114"></script>
 <script src="/device-recordings.js?v=20261123-recordings-submit-syntax-fix"></script>
 <script src="/script.js?v=20261123-unfamiliar-face-label"></script>
-<script src="/faces.js?v=20261123-no-tensorflow-enrollment"></script>
+<script src="/faces.js?v=20261123-multi-photo-enrollment"></script>
 <script src="/camera-grid.js?v=20261123-unfamiliar-face-label"></script>
 <script src="/report-notifications.js?v=20261119-snapshot-notifications-v2"></script>
 <script src="/account-passwords.js?v=20261112-admin-password-reset"></script>
