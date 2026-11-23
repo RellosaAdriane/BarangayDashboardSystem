@@ -207,56 +207,69 @@
   byId('addPersonForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     if (saving || window.currentRole !== 'admin') return;
-    const file = byId('personPhoto').files[0];
+    const files = Array.from(byId('personPhoto').files || []);
     const fullName = byId('personName').value.trim();
     const status = byId('faceManagementStatus');
-    if (!fullName || !file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 4194304) {
-      status.textContent = 'Enter a name and choose a JPEG, PNG or WebP picture, 4 MB or smaller.';
+    if (!fullName || !files.length || files.length > 10 || files.some((file) =>
+      !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 4194304)) {
+      status.textContent = 'Enter a name and select 1 to 10 JPEG, PNG or WebP pictures, 4 MB or smaller each.';
       return;
     }
     saving = true;
     byId('addPersonBtn').disabled = true;
     try {
-      status.textContent = 'Loading face models and checking the picture...';
+      status.textContent = `Loading face models for ${files.length} picture${files.length === 1 ? '' : 's'}...`;
       await loadFaceModels();
-      const image = await faceapi.bufferToImage(file);
-      const canvas = document.createElement('canvas');
-      const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const photoContext = canvas.getContext('2d');
-      photoContext.filter = 'brightness(1.2) contrast(1.05)';
-      photoContext.drawImage(image, 0, 0, canvas.width, canvas.height);
-      photoContext.filter = 'none';
-      status.textContent = 'Trying several face detection settings...';
-      let faces = [];
-      for (const options of [
-        { inputSize: 608, scoreThreshold: 0.35 },
-        { inputSize: 416, scoreThreshold: 0.3 },
-        { inputSize: 320, scoreThreshold: 0.25 }
-      ]) {
-        const candidate = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions(options))
-          .withFaceLandmarks().withFaceDescriptors();
-        if (candidate.length === 1) { faces = candidate; break; }
-        if (candidate.length > 1 && !faces.length) faces = candidate;
+      let uploaded = 0;
+      const failures = [];
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        status.textContent = `Checking picture ${index + 1} of ${files.length}: ${file.name}`;
+        try {
+          const image = await faceapi.bufferToImage(file);
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          const photoContext = canvas.getContext('2d');
+          photoContext.filter = 'brightness(1.2) contrast(1.05)';
+          photoContext.drawImage(image, 0, 0, canvas.width, canvas.height);
+          photoContext.filter = 'none';
+          let faces = [];
+          for (const options of [
+            { inputSize: 608, scoreThreshold: 0.35 },
+            { inputSize: 416, scoreThreshold: 0.3 },
+            { inputSize: 320, scoreThreshold: 0.25 }
+          ]) {
+            const candidate = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions(options))
+              .withFaceLandmarks().withFaceDescriptors();
+            if (candidate.length === 1) { faces = candidate; break; }
+            if (candidate.length > 1 && !faces.length) faces = candidate;
+          }
+          if (faces.length !== 1) throw new Error(faces.length ? 'More than one face detected.' : 'Could not find a face. Try a closer or brighter picture.');
+          await refreshMatcher();
+          const enrollmentConflict = conflictingEnrollment(faces[0].descriptor, fullName);
+          if (enrollmentConflict) throw new Error(enrollmentConflict);
+          const photo = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+          if (!photo) throw new Error('Could not prepare the picture.');
+          const body = new FormData();
+          body.append('fullName', fullName);
+          body.append('descriptor', JSON.stringify(Array.from(faces[0].descriptor)));
+          body.append('picture', photo, 'enrollment.jpg');
+          await request('/api/faces', { method: 'POST', body });
+          uploaded++;
+          invalidate();
+        } catch (error) {
+          failures.push(`${file.name}: ${error.message}`);
+        }
       }
-      if (faces.length !== 1) throw new Error(faces.length ? 'More than one face detected. Please upload a picture with one person.' : 'Could not find a face in this picture. Try a closer or brighter photo where the face is visible.');
-      status.textContent = 'Checking for an existing face enrollment...';
-      await refreshMatcher();
-      const enrollmentConflict = conflictingEnrollment(faces[0].descriptor, fullName);
-      if (enrollmentConflict) throw new Error(enrollmentConflict);
-      const photo = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-      if (!photo) throw new Error('Could not prepare the enrollment picture.');
-      const body = new FormData();
-      body.append('fullName', fullName);
-      body.append('descriptor', JSON.stringify(Array.from(faces[0].descriptor)));
-      body.append('picture', photo, 'enrollment.jpg');
-      status.textContent = 'Saving enrollment...';
-      await request('/api/faces', { method: 'POST', body });
-      invalidate();
-      byId('addPersonForm').reset();
-      status.textContent = `${fullName} enrolled successfully.`;
-      await loadPeople();
+      if (uploaded) {
+        byId('addPersonForm').reset();
+        await loadPeople();
+      }
+      status.textContent = failures.length
+        ? `Uploaded ${uploaded} of ${files.length} pictures. ${failures.join(' | ')}`
+        : `${uploaded} picture${uploaded === 1 ? '' : 's'} enrolled for ${fullName}.`;
     } catch (error) { status.textContent = error.message; }
     finally { saving = false; byId('addPersonBtn').disabled = false; }
   });
