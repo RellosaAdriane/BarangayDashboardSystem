@@ -62,6 +62,35 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
     if (!response.ok) throw new Error(`Email provider returned HTTP ${response.status}`);
     return true;
   }
+  async function emailConfirmedUnrecognized(alertId, baseUrl) {
+    const apiKey = process.env.RESEND_API_KEY;
+    const recipient = process.env.INTRUDER_ALERT_EMAIL;
+    const sender = process.env.CAMERA_ALERT_FROM;
+    if (!apiKey || !recipient || !sender) return false;
+    const { rows } = await pool.query(`SELECT c.name AS "cameraName", c.location,
+      a.detected_at AS "detectedAt", a.face_count AS "faceCount", a.snapshot
+      FROM camera_alerts a JOIN cameras c ON c.id = a.camera_id WHERE a.id = $1 AND a.status = 'pending'`, [alertId]);
+    const alert = rows[0];
+    if (!alert) throw new Error('Confirmed unfamiliar-face alert was not found.');
+    const dashboardUrl = new URL('/', baseUrl).toString();
+    const detectedAt = new Date(alert.detectedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
+    const cameraLocation = alert.location || 'Not set';
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: sender,
+        to: [recipient],
+        subject: `Possible intruder alert: ${alert.cameraName}`,
+        text: `The homeowner confirmed that the unfamiliar person in this camera snapshot was not recognized. Please review the alert promptly in the barangay dashboard. This confirmation means the person was unfamiliar to the homeowner; it does not by itself establish unlawful entry.\n\nCamera: ${alert.cameraName}\nLocation: ${cameraLocation}\nDetected: ${detectedAt}\nFaces: ${alert.faceCount}\n\nOpen the dashboard: ${dashboardUrl}`,
+        html: `<div style="font-family:Arial,sans-serif;color:#172033;max-width:600px"><h2>Possible intruder alert</h2><p>The homeowner confirmed that the unfamiliar person in this camera snapshot was not recognized. Please review the alert promptly in the barangay dashboard.</p><p><strong>Camera:</strong> ${safeHtml(alert.cameraName)}<br><strong>Location:</strong> ${safeHtml(cameraLocation)}<br><strong>Detected:</strong> ${safeHtml(detectedAt)}<br><strong>Faces:</strong> ${safeHtml(alert.faceCount)}</p><p>This confirmation means the person was unfamiliar to the homeowner; it does not by itself establish unlawful entry.</p><p><a href="${safeHtml(dashboardUrl)}" style="display:inline-block;background:#185abc;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:bold">Open dashboard</a></p></div>`,
+        attachments: [{ filename: 'unfamiliar-face-snapshot.jpg', content: alert.snapshot.toString('base64') }]
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) throw new Error(`Email provider returned HTTP ${response.status}`);
+    return true;
+  }
   const ownerEmailConfigured = () => Boolean(process.env.RESEND_API_KEY && process.env.CAMERA_ALERT_EMAIL && process.env.CAMERA_ALERT_FROM && emailReviewSecret());
   let schemaReady;
   const ensureSchema = () => {
@@ -146,9 +175,16 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
     if (!rowCount) return res.status(409).type('html').send(emailReviewPage('Already reviewed', 'This face snapshot has already been reviewed in the dashboard or by another email action.'));
+    let staffEmailSent = false;
+    if (decision === 'unrecognized') {
+      try { staffEmailSent = await emailConfirmedUnrecognized(req.params.id, appBaseUrl(req)); }
+      catch (error) { console.error('Confirmed unfamiliar-face staff email:', error.message); }
+    }
     const message = decision === 'recognized'
       ? 'The face snapshot was recognized. It will not appear in dashboard alerts.'
-      : 'The face snapshot was marked unrecognized and sent to dashboard alerts.';
+      : staffEmailSent
+        ? 'The unfamiliar face was confirmed. The alert is in the dashboard and an email with the snapshot was sent to barangay staff.'
+        : 'The unfamiliar face was confirmed and added to dashboard alerts. The staff email could not be sent; please contact the administrator.';
     res.set('Cache-Control', 'no-store').set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'")
       .type('html').send(emailReviewPage('Dashboard updated', message));
   }));
