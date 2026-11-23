@@ -247,6 +247,15 @@
   window.addEventListener('dashboard:route', (event) => {
     if (event.detail?.route === '#recordingHistoryPanel' || event.detail?.route === '#pastFootagePanel') void history();
   });
+  // Retry initial route detection in case the layout event fires before authentication completes.
+  const pastFootagePanel = $('pastFootagePanel');
+  const loadSelectedPastFootage = () => {
+    if (window.currentRole && (location.hash === '#pastFootagePanel' || pastFootagePanel?.classList.contains('route-selected'))) void history();
+  };
+  if (pastFootagePanel) {
+    new MutationObserver(loadSelectedPastFootage).observe(pastFootagePanel, { attributes: true, attributeFilter: ['class'] });
+    loadSelectedPastFootage();
+  }
   // Clear the one-time token and release video memory when a user signs out.
   new MutationObserver(() => {
     if ($('app').hidden || getComputedStyle($('app')).display === 'none') { $('deviceTokenResult').textContent = ''; if (!dialog.hidden) { dialog.hidden = true; reset(true); } }
