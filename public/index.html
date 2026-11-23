@@ -93,7 +93,7 @@
               <section class="admin-face-tools" id="adminFaceTools" hidden aria-label="Camera snapshot detection">
                 <div class="admin-face-heading"><div><strong>Face monitoring</strong><span class="sub">Green: enrolled face match. Orange: unrecognized face.</span></div><span id="faceRecognitionStatus" class="sub" role="status">Off</span></div>
                 <div class="admin-face-actions"><button class="btn primary" id="toggleFaceRecognitionBtn" type="button" disabled>Start snapshot detection</button></div>
-                <div class="hint">Starts when a camera feed connects, even if its URL is not saved. Green boxes are enrolled matches; orange boxes are unknown faces. Save the camera URL to store unknown-face snapshot alerts. Keep this dashboard open for monitoring.</div>
+                <div class="hint">Starts when a camera feed connects, even if its URL is not saved. Green boxes are enrolled matches; orange boxes are unfamiliar faces. Save the camera URL to store unfamiliar-face snapshot alerts. Keep this dashboard open for monitoring.</div>
               </section>
               <div id="cameraUrlSettings"><div class="field-row"><input id="cameraUrl" type="url" placeholder="Example: http://192.168.1.102:81/stream" aria-label="ESP32-CAM stream URL"><button class="btn" id="saveUrlBtn">Save camera URL</button></div>
               <div class="hint">On the same Wi-Fi as the camera, enter its stream URL and select Connect Camera. In updated Chrome or Edge, select Allow when asked for Local network access. Use Save camera URL to share it with other signed-in users.</div></div>
@@ -234,10 +234,10 @@
   </form>
 </dialog>
 <script src="/mjpeg-avi.js?v=20261114"></script>
-<script src="/device-recordings.js?v=20261123-ascii-copy"></script>
-<script src="/script.js?v=20261123-max-usb-camera-space"></script>
+<script src="/device-recordings.js?v=20261123-past-footage-route-load"></script>
+<script src="/script.js?v=20261123-unfamiliar-face-label"></script>
 <script src="/faces.js?v=20261123-ascii-status-text"></script>
-<script src="/camera-grid.js?v=20261118-dedupe-face-overlay"></script>
+<script src="/camera-grid.js?v=20261123-unfamiliar-face-label"></script>
 <script src="/report-notifications.js?v=20261119-snapshot-notifications-v2"></script>
 <script src="/account-passwords.js?v=20261112-admin-password-reset"></script>
 <script src="/auth.js?v=20261112-tanod-reports-only"></script>
