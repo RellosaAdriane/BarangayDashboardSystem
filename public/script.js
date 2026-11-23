@@ -753,18 +753,20 @@ function drawDetectedFaces(detections, width, height, overlay = $('recognitionOv
     if (!used.has(index) && !coveredByCurrent && track.missed < 4) visibleFaces.push({ ...track.face, box: track.box, detection: track.face.detection ? { ...track.face.detection, box: track.box } : undefined, missed: track.missed + 1 });
   });
   overlayFaceTracks.set(overlay, visibleFaces.map((face) => ({ face, box: { ...(face.detection?.box || face.box) }, missed: face.missed || 0 })));
-  ctx.lineWidth = Math.max(2, Math.round(width / 480));
+  ctx.lineWidth = Math.max(1, width / 960);
   ctx.lineJoin = 'round';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 3;
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
   ctx.font = 'bold 12px Arial';
   for (const face of visibleFaces) {
     const box = face.detection?.box || face.box;
     if (!box) continue;
-    const x = Math.max(0, Math.min(width, box.x));
-    const y = Math.max(0, Math.min(height, box.y));
-    const boxWidth = Math.max(0, Math.min(width - x, box.width));
-    const boxHeight = Math.max(0, Math.min(height - y, box.height));
+    const insetX = box.width * 0.035;
+    const insetY = box.height * 0.025;
+    const x = Math.max(0, Math.min(width, box.x + insetX));
+    const y = Math.max(0, Math.min(height, box.y + insetY));
+    const boxWidth = Math.max(0, Math.min(width - x, box.width - insetX * 2));
+    const boxHeight = Math.max(0, Math.min(height - y, box.height - insetY * 2));
     ctx.strokeStyle = face.matched ? '#86efac' : face.identityPending ? '#facc15' : '#ff9800';
     ctx.strokeRect(x, y, boxWidth, boxHeight);
     ctx.shadowBlur = 0;
