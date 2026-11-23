@@ -337,7 +337,7 @@
       ownerEmailConfigured = Boolean(result.emailConfigured);
       tile.monitor.textContent = result.duplicate
         ? 'Recent snapshot already queued; repeat email suppressed for 60 seconds'
-        : result.emailSent ? 'Unknown-face snapshot saved and emailed to owner'
+        : result.emailSent ? 'Unfamiliar-face snapshot saved and emailed to owner'
         : result.emailConfigured ? 'Snapshot saved, but email delivery failed. Check the Node server log.'
         : 'Snapshot saved; owner email is not configured';
       void loadAlerts();
