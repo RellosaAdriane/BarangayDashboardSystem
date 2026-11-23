@@ -1,6 +1,7 @@
 .git/
 .vercel/
 node_modules/
+.venv-deepface/
 .env
 .env.*
 recordings/

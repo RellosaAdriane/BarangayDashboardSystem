@@ -139,6 +139,7 @@ app.post('/api/auth/logout', (req, res) => req.session.destroy(() => { res.clear
 const ensureCameraAlerts = require('./camera-alerts')(app, database.pool, requireAuth, allow);
 require('./face-management')(app, database.pool, requireAuth, allow);
 const deviceRecordings = require('./device-recordings')(app, database.pool, requireAuth, allow);
+require('./camera-cloud-monitor')(app, database.pool, deviceRecordings.deviceAuth, deviceRecordings.ensureSchema, ensureCameraAlerts);
 require('./announcement-notifications')(app, database.pool, allow);
 require('./account-passwords')(app, database.pool, allow);
 
