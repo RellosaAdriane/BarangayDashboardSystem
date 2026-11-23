@@ -7,63 +7,12 @@
   let refreshing = null;
   let revision = 0;
   let saving = false;
-  let animalClassifierPromise = null;
-  const ANIMAL_CLASS = /\b(?:dog|puppy|retriever|terrier|spaniel|bulldog|shepherd|poodle|chihuahua|pug|mastiff|husky|beagle|collie|corgi|rottweiler|doberman|dachshund|malamute|shih[ -]?tzu|boxer|greyhound|whippet|hound|cat|kitten|feline|bird|parrot|macaw|owl|eagle|duck|goose|chicken|fish|shark|whale|dolphin|horse|pony|donkey|cow|ox|sheep|goat|pig|boar|bear|fox|wolf|lion|tiger|leopard|elephant|deer|giraffe|monkey|ape|chimpanzee|rabbit|hare|mouse|rat|hamster|squirrel|raccoon|skunk|otter|seal|walrus|snake|cobra|python|lizard|gecko|iguana|turtle|tortoise|frog|toad|crocodile|alligator|kangaroo|koala|zebra|camel|llama|alpaca|bat|spider|scorpion|butterfly|insect|beetle|snail|octopus|crab|lobster|animal)\b/i;
 
   async function request(path, options = {}) {
     const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...options });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Face management request failed.');
     return data;
-  }
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error('Could not load the human-versus-animal check. Check your internet connection and try again.'));
-      document.head.appendChild(script);
-    });
-  }
-  async function loadAnimalClassifier() {
-    if (!animalClassifierPromise) animalClassifierPromise = (async () => {
-      if (typeof window.tf?.setBackend !== 'function' || typeof window.tf?.ready !== 'function') {
-        await loadScript('/vendor/tf.min.js');
-      }
-      if (typeof window.tf?.setBackend !== 'function' || typeof window.tf?.ready !== 'function') {
-        throw new Error('The local TensorFlow.js bundle did not expose the required API.');
-      }
-      // Another script or browser extension may define `mobilenet` without
-      // exposing the TensorFlow.js MobileNet API. Check the method we use,
-      // rather than treating any truthy global as a successful load.
-      if (typeof window.mobilenet?.load !== 'function') await loadScript('/vendor/mobilenet.min.js');
-      if (typeof window.mobilenet?.load !== 'function') {
-        throw new Error('The local MobileNet bundle did not expose mobilenet.load().');
-      }
-      if (!await window.tf.setBackend('cpu')) throw new Error('TensorFlow CPU backend is unavailable.');
-      await window.tf.ready();
-      return window.mobilenet.load({ version: 2, alpha: 0.5, modelUrl: '/models/mobilenet/model.json', inputRange: [0, 1] });
-    })().catch((error) => { animalClassifierPromise = null; throw error; });
-    return animalClassifierPromise;
-  }
-  async function rejectAnimalFace(image, face) {
-    let classifier;
-    try { classifier = await loadAnimalClassifier(); }
-    catch (error) {
-      console.error('Local person-check model failed:', error);
-      throw new Error(`Could not load the local person-check model (${error.message}). Refresh the dashboard or contact the administrator.`);
-    }
-    const box = face.detection.box;
-    const side = Math.min(Math.max(box.width, box.height) * 1.65, image.width, image.height);
-    const x = Math.max(0, Math.min(image.width - side, box.x + (box.width - side) / 2));
-    const y = Math.max(0, Math.min(image.height - side, box.y + (box.height - side) / 2));
-    const crop = document.createElement('canvas');
-    crop.width = 224;
-    crop.height = 224;
-    crop.getContext('2d').drawImage(image, x, y, side, side, 0, 0, crop.width, crop.height);
-    const predictions = await classifier.classify(crop, 5);
-    const animal = predictions.find((prediction) => prediction.probability >= 0.2 && ANIMAL_CLASS.test(prediction.className));
-    if (animal) throw new Error('Animal faces cannot be enrolled. Upload a clear photo of a person instead.');
   }
   function invalidate() {
     revision++;
@@ -292,8 +241,7 @@
         if (candidate.length > 1 && !faces.length) faces = candidate;
       }
       if (faces.length !== 1) throw new Error(faces.length ? 'More than one face detected. Please upload a picture with one person.' : 'Could not find a face in this picture. Try a closer or brighter photo where the face is visible.');
-      status.textContent = 'Checking that the detected face belongs to a person...';
-      await rejectAnimalFace(canvas, faces[0]);
+      status.textContent = 'Checking for an existing face enrollment...';
       await refreshMatcher();
       const enrollmentConflict = conflictingEnrollment(faces[0].descriptor, fullName);
       if (enrollmentConflict) throw new Error(enrollmentConflict);
