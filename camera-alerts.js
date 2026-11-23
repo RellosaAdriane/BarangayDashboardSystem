@@ -259,7 +259,7 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
     if (view === 'archived' && req.session.user.role === 'captain') return res.status(403).json({ error: 'Archive is unavailable for Captain accounts.' });
     const offset = Number(req.query.offset || 0);
     if (!['pending', 'archived', 'reports'].includes(view) || !/^\d+$/.test(String(req.query.offset || 0)) || !Number.isSafeInteger(offset) || offset < 0) {
-      return res.status(400).json({ error: 'Choose Pending, Archive or Reports and a valid page.' });
+      return res.status(400).json({ error: 'Choose Reports or Archive and a valid page.' });
     }
     // Reports combines snapshots awaiting review with confirmed reports needing follow-up.
     // Tanod accounts see confirmed reports; captains and admins also see pending snapshots.
