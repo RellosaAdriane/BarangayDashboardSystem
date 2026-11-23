@@ -69,7 +69,7 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
     if (!apiKey || !recipient || !sender) return false;
     const { rows } = await pool.query(`SELECT c.name AS "cameraName", c.location,
       a.detected_at AS "detectedAt", a.face_count AS "faceCount", a.snapshot
-      FROM camera_alerts a JOIN cameras c ON c.id = a.camera_id WHERE a.id = $1 AND a.status = 'report'`, [alertId]);
+      FROM camera_alerts a JOIN cameras c ON c.id = a.camera_id WHERE a.id = $1 AND a.status = 'pending'`, [alertId]);
     const alert = rows[0];
     if (!alert) throw new Error('Confirmed unfamiliar-face alert was not found.');
     const dashboardUrl = new URL('/', baseUrl).toString();
@@ -161,14 +161,14 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
     let rowCount = 0;
     try {
       await client.query('BEGIN');
-      const nextStatus = decision === 'recognized' ? 'recognized' : 'report';
+      const nextStatus = decision === 'recognized' ? 'recognized' : 'pending';
       const updated = await client.query(`UPDATE camera_alerts SET status = $1, review_note = $2,
         reviewed_by = NULL, reviewed_at = NOW() WHERE id = $3 AND status IN ('email_pending', 'pending') AND reviewed_at IS NULL`,
-      [nextStatus, decision === 'recognized' ? 'Recognized from the email review link.' : 'Homeowner confirmed an unfamiliar face; staff follow-up required.', req.params.id]);
+      [nextStatus, decision === 'recognized' ? 'Recognized from the email review link.' : 'Homeowner confirmed this person was unrecognized; staff follow-up required.', req.params.id]);
       rowCount = updated.rowCount;
       if (rowCount && decision === 'unrecognized') {
-        await client.query(`INSERT INTO report_notifications (alert_id, user_id)
-          SELECT $1, id FROM users WHERE role IN ('tanod', 'captain') AND is_active = true AND approval_status = 'approved'
+        await client.query(`INSERT INTO snapshot_notifications (alert_id, user_id)
+          SELECT $1, id FROM users WHERE role IN ('admin', 'captain') AND is_active = true AND approval_status = 'approved'
           ON CONFLICT (alert_id, user_id) DO NOTHING`, [req.params.id]);
       }
       await client.query('COMMIT');
@@ -183,8 +183,8 @@ module.exports = function registerCameraAlerts(app, pool, requireAuth, allow) {
     const message = decision === 'recognized'
       ? 'The face snapshot was recognized. It will not appear in dashboard alerts.'
       : staffEmailSent
-        ? 'The unfamiliar face was confirmed. The alert is in the Reports queue and an email with the snapshot was sent to barangay staff.'
-        : 'The unfamiliar face was confirmed and added to the Reports queue for staff follow-up. The staff email could not be sent; please contact the administrator.';
+        ? 'The unfamiliar face was confirmed. The alert is in Pending Alerts and an email with the snapshot was sent to barangay staff.'
+        : 'The unfamiliar face was confirmed and added to Pending Alerts for staff follow-up. The staff email could not be sent; please contact the administrator.';
     res.set('Cache-Control', 'no-store').set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'")
       .type('html').send(emailReviewPage('Dashboard updated', message));
   }));
