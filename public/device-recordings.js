@@ -227,7 +227,7 @@
   });
   $('revokeDeviceToken').addEventListener('click', async () => {
     const id = $('deviceCameraSelect').value;
-    if (!id || !confirm('Revoke this camera's upload token?')) return;
+    if (!id || !confirm("Revoke this camera's upload token?")) return;
     try { await api(`/api/cameras/${id}/device-token`, { method: 'DELETE' }); $('deviceTokenResult').textContent = 'Device token revoked.'; }
     catch (error) { $('deviceTokenResult').textContent = error.message; }
   });
