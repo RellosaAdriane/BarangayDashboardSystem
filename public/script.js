@@ -388,6 +388,7 @@ async function connectUsbCamera() {
     const video = $('usbCameraVideo');
     video.srcObject = stream;
     await video.play();
+    fitUsbCameraPreview();
     connected = true;
     $('usbCameraPanel').hidden = false;
     $('usbLiveTag').style.display = 'block';
@@ -409,12 +410,34 @@ async function connectUsbCamera() {
       : `Could not connect USB camera: ${error.message}`;
   }
 }
+function fitUsbCameraPreview() {
+  const video = $('usbCameraVideo');
+  const frame = video?.parentElement;
+  if (!frame || !video.videoWidth || !video.videoHeight) return;
+  const availableWidth = frame.clientWidth || frame.parentElement?.clientWidth || video.videoWidth;
+  const maxHeight = Math.min(window.innerHeight * 0.78, 900);
+  const frameHeight = Math.min(availableWidth * video.videoHeight / video.videoWidth, maxHeight);
+  // Size the preview to the source aspect ratio so a 4:3 webcam uses nearly
+  // the full panel. If the viewport limits the height, object-fit and the
+  // face overlay both contain the image with the same centered letterboxing.
+  frame.style.aspectRatio = 'auto';
+  frame.style.minHeight = '0';
+  frame.style.maxHeight = `${maxHeight}px`;
+  frame.style.height = `${frameHeight}px`;
+}
 function disconnectUsbCamera() {
   if (usbCameraStream) usbCameraStream.getTracks().forEach((track) => track.stop());
   usbCameraStream = null;
   usbCameraActive = false;
   const video = $('usbCameraVideo');
   if (video) video.srcObject = null;
+  const frame = video?.parentElement;
+  if (frame) {
+    frame.style.aspectRatio = '';
+    frame.style.minHeight = '';
+    frame.style.maxHeight = '';
+    frame.style.height = '';
+  }
   if ($('usbLiveTag')) $('usbLiveTag').style.display = 'none';
   if ($('usbCameraBadge')) {
     $('usbCameraBadge').textContent = 'NOT CONNECTED';
@@ -436,6 +459,7 @@ if (typeof window.addEventListener === 'function'
   });
   updateUsbCameraChoices();
   navigator.mediaDevices?.addEventListener?.('devicechange', () => updateUsbCameraChoices());
+  window.addEventListener('resize', () => { if (usbCameraActive) fitUsbCameraPreview(); });
   const usbCameraBody = $('usbCameraBody');
   const usbCameraToggle = $('toggleUsbCameraPanelBtn');
   let usbCameraCollapsed = false;
