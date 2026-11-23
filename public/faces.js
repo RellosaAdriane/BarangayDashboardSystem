@@ -1,6 +1,6 @@
 (() => {
   const byId = (id) => document.getElementById(id);
-  const MATCH_DISTANCE = 0.6;
+  const MATCH_DISTANCE = 0.45;
   const MIN_IDENTITY_GAP = 0.07;
   let enrolled = [];
   let refreshedAt = 0;
