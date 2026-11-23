@@ -1,6 +1,6 @@
 (() => {
   const byId = (id) => document.getElementById(id);
-  const MATCH_DISTANCE = 0.48;
+  const MATCH_DISTANCE = 0.6;
   const MIN_IDENTITY_GAP = 0.07;
   let enrolled = [];
   let refreshedAt = 0;
@@ -37,7 +37,7 @@
         return `This face is already enrolled as ${person.fullName}. Use the same name when adding another photo.`;
       }
     }
-    if (sameName && sameNameDistance > 0.48) return `This face does not match the existing enrollment for ${sameName}. Use a photo of that person.`;
+    if (sameName && sameNameDistance > 0.6) return `This face does not match the existing enrollment for ${sameName}. Use a photo of that person.`;
     return '';
   }
   async function refreshMatcher() {
