@@ -1,17 +1,12 @@
 #pragma once
 #include <Arduino.h>
 #include <FS.h>
-#include <esp_heap_caps.h>
 #include <vector>
 
 // One video stream, MJPG frames, RIFF AVI with an idx1 index.
 // Caller holds the SD mutex while calling these methods.
 class AviWriter {
-  // One SD sector keeps any SDMMC bounce-buffer allocation small enough for
-  // the ESP32-CAM's fragmented internal DMA heap while TLS is also active.
-  static constexpr size_t DMA_WRITE_CHUNK = 512;
   File file;
-  uint8_t* dmaBuffer = nullptr;
   struct Entry { uint32_t offset, length; };
   std::vector<Entry> entries;
   uint16_t width = 0, height = 0;
@@ -25,18 +20,8 @@ class AviWriter {
 public:
   bool begin(fs::FS& fs, const String& path, uint16_t w, uint16_t h) {
     entries.clear(); entries.reserve(360); largest = 0; width = w; height = h;
-    // Camera JPEG buffers live in PSRAM. SDMMC needs a DMA-capable source, so
-    // copy small chunks through one bounded internal DMA buffer instead of
-    // asking the SD driver to allocate a DMA buffer as large as the whole JPEG.
-    dmaBuffer = static_cast<uint8_t*>(heap_caps_malloc(DMA_WRITE_CHUNK, MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
-    if (!dmaBuffer) {
-      Serial.printf("SD recorder cannot allocate %u-byte DMA buffer: free DMA=%u bytes, largest DMA block=%u bytes.\n",
-                    unsigned(DMA_WRITE_CHUNK), unsigned(heap_caps_get_free_size(MALLOC_CAP_DMA)),
-                    unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
-      return false;
-    }
     file = fs.open(path, FILE_WRITE);
-    if (!file) { heap_caps_free(dmaBuffer); dmaBuffer = nullptr; return false; }
+    if (!file) return false;
     uint8_t header[224] = {};
     memcpy(header, "RIFF", 4); memcpy(header + 8, "AVI LIST", 8);
     number(header, 16, 192); memcpy(header + 20, "hdrlavih", 8); number(header, 28, 56);
@@ -49,26 +34,13 @@ public:
     number(header, 176, w); number(header, 180, h); header[184] = 1; header[186] = 24;
     memcpy(header + 188, "MJPG", 4); number(header, 192, uint32_t(w) * h * 3);
     memcpy(header + 212, "LIST", 4); memcpy(header + 220, "movi", 4);
-    if (file.write(header, sizeof(header)) == sizeof(header)) return true;
-    close();
-    return false;
+    return file.write(header, sizeof(header)) == sizeof(header);
   }
   bool frame(const uint8_t* data, size_t length) {
-    if (!file || length < 4 || length > 512 * 1024 || entries.size() >= 600) return false;
+    if (!file || length < 4 || length > 256 * 1024 || entries.size() >= 600) return false;
     if (data[0] != 255 || data[1] != 216 || data[length - 2] != 255 || data[length - 1] != 217) return false;
     const uint32_t offset = file.position() - 220;
-    if (!dmaBuffer || file.write((const uint8_t*)"00dc", 4) != 4 || !writeNumber(length)) return false;
-    for (size_t offset = 0; offset < length;) {
-      const size_t chunk = min(DMA_WRITE_CHUNK, length - offset);
-      memcpy(dmaBuffer, data + offset, chunk);
-      if (file.write(dmaBuffer, chunk) != chunk) {
-        Serial.printf("SD write failed while saving JPEG (%u/%u bytes written); free DMA=%u bytes, largest DMA block=%u bytes.\n",
-                      unsigned(offset), unsigned(length), unsigned(heap_caps_get_free_size(MALLOC_CAP_DMA)),
-                      unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
-        return false;
-      }
-      offset += chunk;
-    }
+    if (file.write((const uint8_t*)"00dc", 4) != 4 || !writeNumber(length) || file.write(data, length) != length) return false;
     if ((length & 1) && file.write(uint8_t(0)) != 1) return false;
     entries.push_back({ offset, uint32_t(length) });
     if (length > largest) largest = length;
@@ -91,9 +63,5 @@ public:
     patch(140, count); patch(144, largest); patch(216, indexStart - 220);
     file.flush(); close(); return ok;
   }
-  void close() {
-    if (file) file.close();
-    if (dmaBuffer) { heap_caps_free(dmaBuffer); dmaBuffer = nullptr; }
-    entries.clear();
-  }
+  void close() { if (file) file.close(); entries.clear(); }
 };

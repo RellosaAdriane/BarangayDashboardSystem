@@ -3,9 +3,6 @@ const API_BASE = '/api';
 let cameraStatuses = null;
 let cameraAlerts = [];
 let connected = false;
-let usbCameraActive = false;
-let usbCameraStream = null;
-let usbCameraRecords = [];
 let cameraLoadTimer = null;
 let cameraFirstFrameTimer = null;
 let cameraAttempt = 0;
@@ -14,11 +11,8 @@ let alertView = 'pending';
 let alertPage = 0;
 let alertHasMore = false;
 let alertLoadRequest = 0;
-let selectedAlertIds = new Set();
-let alertBulkSaving = false;
 let lastSnapshotAt = 0;
 let alertReviewSaving = false;
-let ownerEmailConfigured = null;
 let faceModelsReady = false;
 let faceApiLoadPromise = null;
 let faceModelLoadPromise = null;
@@ -60,7 +54,6 @@ async function loadAlerts() {
     if (!data.length && alertPage > 0) { alertPage--; return loadAlerts(); }
     alertHasMore = data.length > 20;
     snapshotAlerts = data.slice(0, 20);
-    selectedAlertIds = new Set([...selectedAlertIds].filter((id) => snapshotAlerts.some((item) => Number(item.id) === id)));
     $('previousAlertsBtn').disabled = alertPage === 0;
     $('nextAlertsBtn').disabled = !alertHasMore;
     $('alertPageStatus').textContent = `${alertView === 'archived' ? 'Archive' : alertView === 'reports' ? 'Reports' : 'Pending'} - Page ${alertPage + 1}`;
@@ -74,56 +67,11 @@ function renderAlertFeed() {
   $('alertLoadStatus').textContent = '';
   const cards = snapshotAlerts.map((item) => {
     const id = Number(item.id);
-    return `<article class="snapshot-alert snapshot-alert-summary"><label class="snapshot-select"><input type="checkbox" data-select-alert="${id}" aria-label="Select snapshot alert"></label><button type="button" class="snapshot-thumbnail" data-preview-alert="${id}" aria-label="Preview snapshot"><img src="/api/alerts/${id}/snapshot" loading="lazy" alt="Camera snapshot"></button><div class="snapshot-summary-text"><strong>Face snapshot</strong><p>${escapeHtml(item.cameraName)}</p><time>${escapeHtml(formatDate(item.detectedAt))}</time><span class="tag ${alertStatusClass(item.status)}">${escapeHtml(item.status)}</span>${reportActionBadge(item)}</div><button class="btn" type="button" data-preview-alert="${id}">Preview</button></article>`;
+    return `<article class="snapshot-alert snapshot-alert-summary"><button type="button" class="snapshot-thumbnail" data-preview-alert="${id}" aria-label="Preview snapshot"><img src="/api/alerts/${id}/snapshot" loading="lazy" alt="Camera snapshot"></button><div class="snapshot-summary-text"><strong>Face snapshot</strong><p>${escapeHtml(item.cameraName)}</p><time>${escapeHtml(formatDate(item.detectedAt))}</time><span class="tag ${alertStatusClass(item.status)}">${escapeHtml(item.status)}</span>${reportActionBadge(item)}</div><button class="btn" type="button" data-preview-alert="${id}">Preview</button></article>`;
   });
   const statusCards = alertView === 'pending' && alertPage === 0 ? cameraAlerts.slice(0, 5).map((entry) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(entry.title)}</strong><p>${escapeHtml(entry.details)}</p></div><span class="alert-time">${escapeHtml(formatDate(entry.time))}</span></div>`) : [];
   list.innerHTML = [...cards, ...statusCards].join('') || `<div class="empty">${alertView === 'archived' ? 'No archived snapshots yet. Reviewed snapshots appear here automatically.' : alertView === 'reports' ? 'No snapshots marked Report.' : 'No snapshots waiting for review.'}</div>`;
   list.querySelectorAll('[data-preview-alert]').forEach((button) => button.addEventListener('click', () => openSnapshotPreview(Number(button.dataset.previewAlert))));
-  list.querySelectorAll('[data-select-alert]').forEach((checkbox) => {
-    checkbox.checked = selectedAlertIds.has(Number(checkbox.dataset.selectAlert));
-  });
-  updateAlertBulkControls();
-}
-function updateAlertBulkControls() {
-  const controls = $('alertBulkControls');
-  if (!controls) return;
-  const canManage = (alertView === 'pending' && ['admin', 'captain'].includes(window.currentRole))
-    || (alertView === 'archived' && window.currentRole === 'admin');
-  controls.hidden = !canManage || snapshotAlerts.length === 0;
-  $('archiveSelectedAlertsBtn').hidden = alertView !== 'pending';
-  $('deleteSelectedAlertsBtn').hidden = alertView !== 'archived' || window.currentRole !== 'admin';
-  $('selectedAlertCount').textContent = `${selectedAlertIds.size} selected`;
-  $('selectAllAlerts').checked = snapshotAlerts.length > 0 && selectedAlertIds.size === snapshotAlerts.length;
-  $('selectAllAlerts').disabled = alertBulkSaving;
-  $('archiveSelectedAlertsBtn').disabled = alertBulkSaving || selectedAlertIds.size === 0;
-  $('deleteSelectedAlertsBtn').disabled = alertBulkSaving || selectedAlertIds.size === 0;
-}
-async function submitBulkAlertAction(action) {
-  const ids = [...selectedAlertIds];
-  if (!ids.length || alertBulkSaving) return;
-  if (action === 'delete' && !window.confirm(`Permanently delete ${ids.length} selected archived snapshot(s)? This cannot be undone.`)) return;
-  alertBulkSaving = true;
-  updateAlertBulkControls();
-  try {
-    const endpoint = action === 'delete' ? 'bulk' : 'bulk-archive';
-    const response = await fetch(`${API_BASE}/alerts/${endpoint}`, {
-      method: action === 'delete' ? 'DELETE' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `Could not ${action} selected alerts.`);
-    selectedAlertIds.clear();
-    await loadAlerts();
-    $('alertLoadStatus').textContent = action === 'delete'
-      ? `${result.deleted} archived snapshot(s) permanently deleted.`
-      : `${result.archived} snapshot(s) moved to Archive.`;
-  } catch (error) {
-    $('alertLoadStatus').textContent = error.message;
-  } finally {
-    alertBulkSaving = false;
-    updateAlertBulkControls();
-  }
 }
 const snapshotPreviewNotes = new Map();
 function alertStatusClass(status) {
@@ -153,10 +101,9 @@ function snapshotPreviewMarkup(item) {
     ${item.reviewNote ? `<p>${escapeHtml(item.reviewNote)}</p>` : ''}
     ${pending && canReview ? `<form data-review-alert="${id}"><label class="sub" for="alert-note-${id}">Review notes (optional)</label>
       <textarea id="alert-note-${id}" name="note" class="form-control" maxlength="1000" rows="2"></textarea>
-      <div class="alert-review-actions"><button class="btn primary" name="status" value="recognized" type="submit">Authorized</button>
-      <button class="btn" name="status" value="dismissed" type="submit">Visitor</button>
-      <button class="btn" name="status" value="report" type="submit">Suspected intruder</button></div>
-      <p class="hint">Choose the owner’s verification result. Authorized and Visitor snapshots move to Archive. Suspected intruder alerts stay in Reports until marked as actioned.</p>
+      <div class="alert-review-actions"><button class="btn primary" name="status" value="recognized" type="submit">Recognized</button>
+      <button class="btn" name="status" value="report" type="submit">Report</button></div>
+      <p class="hint">Recognized snapshots move to Archive. Reports stay active for follow-up until marked as actioned, then archive automatically. To enroll a person, use Face Management.</p>
       <span class="sub" role="status"></span></form>` : pending ? '<p>Awaiting captain or admin review.</p>' : item.status === 'report' && !item.actionedAt ? '<p>Flagged for follow-up.</p>' : ''}</div></article>`;
 }
 function bindSnapshotReview(root) {
@@ -216,29 +163,15 @@ function renderSnapshotPreview(item) {
 function openSnapshotPreview(id) {
   const item = snapshotAlerts.find((alert) => Number(alert.id) === id);
   if (!item) return;
-  showSnapshotPreview(item);
-}
-function showSnapshotPreview(item) {
   const dialog = $('snapshotPreview');
   saveSnapshotPreviewNote();
-  dialog.dataset.alertId = String(item.id);
+  dialog.dataset.alertId = String(id);
   renderSnapshotPreview(item);
   dialog.classList.remove('is-maximized');
   $('maximizeSnapshotPreview').textContent = 'Maximize';
   $('maximizeSnapshotPreview').setAttribute('aria-pressed', 'false');
   if (!dialog.open) dialog.showModal();
 }
-window.openPendingSnapshot = async (notification) => {
-  const response = await fetch(`${API_BASE}/alerts/${notification.id}/details`, { cache: 'no-store' });
-  if (!response.ok) throw new Error('Could not load the latest snapshot details.');
-  const item = await response.json();
-  window.location.hash = '#alerts';
-  alertView = 'pending';
-  alertPage = 0;
-  $('alertView').value = 'pending';
-  await loadAlerts();
-  showSnapshotPreview(item);
-};
 window.openReportedSnapshot = async (item) => {
   const response = await fetch(`${API_BASE}/alerts/${item.id}/report`, { cache: 'no-store' });
   if (!response.ok) throw new Error('Could not load the latest report details.');
@@ -309,141 +242,7 @@ function isLocalCameraUrl(url) {
       || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
       || (parts[0] === 169 && parts[1] === 254));
 }
-function updateUsbCameraChoices(cameras = usbCameraRecords) {
-  const deviceSelect = $('usbDeviceSelect');
-  const alertSelect = $('usbAlertCameraSelect');
-  const selectedDevice = deviceSelect.value;
-  const selectedAlertCamera = alertSelect.value || String(window.activeCameraId || '');
-  deviceSelect.replaceChildren();
-  const devices = [...(usbCameraStream?.getVideoTracks() || [])];
-  const deviceOptions = navigator.mediaDevices?.enumerateDevices
-    ? navigator.mediaDevices.enumerateDevices().then((all) => all.filter((device) => device.kind === 'videoinput'))
-    : Promise.resolve([]);
-  deviceOptions.then((available) => {
-    const choices = available.length ? available : devices.map((track) => ({ deviceId: track.getSettings().deviceId, label: track.label }));
-    choices.forEach((device, index) => {
-      const option = document.createElement('option');
-      option.value = device.deviceId || '';
-      option.textContent = device.label || `USB camera ${index + 1}`;
-      deviceSelect.appendChild(option);
-    });
-    if (choices.some((device) => device.deviceId === selectedDevice)) deviceSelect.value = selectedDevice;
-  }).catch(() => {});
-  alertSelect.replaceChildren();
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = cameras.length ? 'Select a saved camera' : 'Add a camera in Camera Setup first';
-  alertSelect.appendChild(placeholder);
-  cameras.filter((camera) => camera.isEnabled !== false && camera.isEnabled !== 0).forEach((camera) => {
-    const option = document.createElement('option');
-    option.value = String(camera.id);
-    option.textContent = `${camera.name}${camera.location ? ` · ${camera.location}` : ''}`;
-    alertSelect.appendChild(option);
-  });
-  if (cameras.some((camera) => String(camera.id) === selectedAlertCamera)) alertSelect.value = selectedAlertCamera;
-  else if (cameras.length) alertSelect.value = String(cameras[0].id);
-}
-async function connectUsbCamera() {
-  if (!window.currentRole) return;
-  if (!navigator.mediaDevices?.getUserMedia) {
-    $('usbCameraStatus').textContent = 'USB camera needs a browser that supports camera access on localhost or HTTPS.';
-    return;
-  }
-  disconnectUsbCamera();
-  const attempt = ++cameraAttempt;
-  stopFaceRecognition();
-  $('connectUsbCameraBtn').disabled = true;
-  $('usbCameraStatus').textContent = 'Requesting USB camera access…';
-  try {
-    const deviceId = $('usbDeviceSelect').value;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } }
-    });
-    if (attempt !== cameraAttempt) { stream.getTracks().forEach((track) => track.stop()); return; }
-    usbCameraStream = stream;
-    usbCameraActive = true;
-    stream.getVideoTracks()[0]?.addEventListener('ended', () => {
-      if (!usbCameraActive) return;
-      cameraAttempt++;
-      disconnectUsbCamera();
-      $('usbCameraStatus').textContent = 'USB webcam disconnected or unplugged.';
-    }, { once: true });
-    const video = $('usbCameraVideo');
-    video.srcObject = stream;
-    await video.play();
-    connected = true;
-    $('usbCameraPanel').hidden = false;
-    $('usbLiveTag').style.display = 'block';
-    $('usbCameraBadge').textContent = 'CONNECTED · LOCAL';
-    $('usbCameraBadge').className = 'tag green';
-    $('disconnectUsbCameraBtn').disabled = false;
-    $('connectUsbCameraBtn').disabled = false;
-    $('usbCameraStatus').textContent = monitoringCameraId()
-      ? 'USB webcam connected locally. Face monitoring is starting; alerts use the selected saved camera record.'
-      : 'USB webcam connected locally. Select a saved camera record to enable face alerts.';
-    updateUsbCameraChoices();
-    updateStats();
-    window.dispatchEvent(new Event('camera:connected'));
-  } catch (error) {
-    disconnectUsbCamera();
-    $('connectUsbCameraBtn').disabled = false;
-    $('usbCameraStatus').textContent = error.name === 'NotAllowedError'
-      ? 'Camera access was denied. Allow camera permission in the browser, then try again.'
-      : `Could not connect USB camera: ${error.message}`;
-  }
-}
-function disconnectUsbCamera() {
-  if (usbCameraStream) usbCameraStream.getTracks().forEach((track) => track.stop());
-  usbCameraStream = null;
-  usbCameraActive = false;
-  const video = $('usbCameraVideo');
-  if (video) video.srcObject = null;
-  if ($('usbLiveTag')) $('usbLiveTag').style.display = 'none';
-  if ($('usbCameraBadge')) {
-    $('usbCameraBadge').textContent = 'NOT CONNECTED';
-    $('usbCameraBadge').className = 'tag amber';
-  }
-  if ($('disconnectUsbCameraBtn')) $('disconnectUsbCameraBtn').disabled = true;
-  if ($('connectUsbCameraBtn')) $('connectUsbCameraBtn').disabled = false;
-  if (connected) connected = false;
-  stopFaceRecognition();
-  updateStats();
-  window.dispatchEvent(new Event('camera:disconnected'));
-}
-if (typeof window.addEventListener === 'function'
-  && typeof $('usbDeviceSelect')?.replaceChildren === 'function'
-  && typeof $('usbAlertCameraSelect')?.replaceChildren === 'function') {
-  window.addEventListener('cameras:updated', (event) => {
-    usbCameraRecords = event.detail || [];
-    updateUsbCameraChoices();
-  });
-  updateUsbCameraChoices();
-  const usbCameraBody = $('usbCameraBody');
-  const usbCameraToggle = $('toggleUsbCameraPanelBtn');
-  let usbCameraCollapsed = false;
-  try { usbCameraCollapsed = localStorage.getItem('usbCameraPreviewCollapsed') === 'true'; } catch {}
-  const setUsbCameraCollapsed = (collapsed) => {
-    usbCameraCollapsed = collapsed;
-    usbCameraBody.hidden = collapsed;
-    usbCameraToggle.textContent = collapsed ? 'Show preview' : 'Hide preview';
-    usbCameraToggle.setAttribute('aria-expanded', String(!collapsed));
-    try { localStorage.setItem('usbCameraPreviewCollapsed', String(collapsed)); } catch {}
-  };
-  setUsbCameraCollapsed(usbCameraCollapsed);
-  usbCameraToggle.addEventListener('click', () => setUsbCameraCollapsed(!usbCameraCollapsed));
-  $('connectUsbCameraBtn').addEventListener('click', connectUsbCamera);
-  $('disconnectUsbCameraBtn').addEventListener('click', () => { cameraAttempt++; disconnectUsbCamera(); $('usbCameraStatus').textContent = 'USB webcam disconnected.'; });
-  $('usbDeviceSelect').addEventListener('change', () => { if (usbCameraActive) void connectUsbCamera(); });
-  $('usbAlertCameraSelect').addEventListener('change', () => {
-    if (!usbCameraActive) return;
-    stopFaceRecognition();
-    if (monitoringCameraId()) void startFaceRecognition();
-    else $('usbCameraStatus').textContent = 'Select a saved camera record to enable face alerts.';
-  });
-}
 async function connectCamera() {
-  if (typeof usbCameraActive !== 'undefined' && usbCameraActive) disconnectUsbCamera();
   stopFaceRecognition();
   const url = $('cameraUrl').value.trim();
   if (!url) {
@@ -488,7 +287,7 @@ async function connectCamera() {
     $('cameraStatus').textContent = window.activeCameraId
       ? 'Status: ESP32-CAM feed connected'
       : 'Status: Feed connected. Select Save camera URL to enable snapshot alerts.';
-    $('toggleFaceRecognitionBtn').disabled = false;
+    $('toggleFaceRecognitionBtn').disabled = !window.activeCameraId;
     updateStats();
     window.dispatchEvent(new Event('camera:connected'));
   };
@@ -570,41 +369,11 @@ async function connectCamera() {
 function updateFaceRecognitionCount() {
   $('faceRecognitionStatus').textContent = faceRecognitionActive
     ? 'Snapshot detection on'
-    : connected && !monitoringCameraId() && !usbCameraActive
+    : connected && !window.activeCameraId
       ? 'Save camera URL first to enable snapshot alerts'
       : 'Snapshot detection off';
 }
-async function refreshOwnerEmailStatus() {
-  if (ownerEmailConfigured !== null) return ownerEmailConfigured;
-  try {
-    const response = await fetch(`${API_BASE}/alerts/email-status`, { credentials: 'same-origin', cache: 'no-store' });
-    if (!response.ok) throw new Error('Email alert status is unavailable.');
-    ownerEmailConfigured = Boolean((await response.json()).configured);
-  } catch { ownerEmailConfigured = false; }
-  return ownerEmailConfigured;
-}
-function ownerEmailStatusLabel() {
-  return ownerEmailConfigured ? 'owner email ready' : 'owner email not configured';
-}
-function makeAlertSnapshot(canvas) {
-  const prefix = 'data:image/jpeg;base64,';
-  for (const quality of [0.82, 0.68, 0.54, 0.4, 0.3, 0.2]) {
-    const dataUrl = canvas.toDataURL('image/jpeg', quality);
-    const base64 = dataUrl.startsWith(prefix) ? dataUrl.slice(prefix.length) : '';
-    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-    const byteLength = Math.floor(base64.length * 3 / 4) - padding;
-    if (byteLength <= 400 * 1024) return dataUrl;
-  }
-  throw new Error('Camera snapshot is too large to send.');
-}
-function monitoringCameraId() {
-  return Number(usbCameraActive ? $('usbAlertCameraSelect')?.value : window.activeCameraId) || null;
-}
 function videoFrameReady() {
-  if (usbCameraActive) {
-    const video = $('usbCameraVideo');
-    return Boolean(connected && video?.srcObject && video.videoWidth > 0 && video.videoHeight > 0);
-  }
   const stream = $('cameraImg');
   return Boolean(connected && stream?.src && stream.naturalWidth > 0 && stream.naturalHeight > 0);
 }
@@ -634,167 +403,69 @@ async function loadFaceModels() {
   try { await faceModelLoadPromise; }
   catch (error) { faceModelLoadPromise = null; throw error; }
 }
-const overlayFaceTracks = new WeakMap();
-function faceBoxOverlapRatio(a, b) {
-  const intersection = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
-    * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-  return intersection / Math.min(a.width * a.height, b.width * b.height);
-}
-function faceDescriptorDistance(a, b) {
-  if (!a || !b || a.length !== 128 || b.length !== 128) return Infinity;
-  let sum = 0;
-  for (let index = 0; index < 128; index++) {
-    const difference = a[index] - b[index];
-    sum += difference * difference;
-  }
-  return Math.sqrt(sum);
-}
 function drawDetectedFaces(detections, width, height, overlay = $('recognitionOverlay')) {
   if (!overlay) return;
   // Match the captured image's dimensions. CSS contains both the video image
   // and this canvas in the same area, including any black bars.
-  if (overlay.width !== width) overlay.width = width;
-  if (overlay.height !== height) overlay.height = height;
-  if (overlay.style) Object.assign(overlay.style, {
-    display: 'block', position: 'absolute', inset: '0', width: '100%', height: '100%',
-    zIndex: '10', pointerEvents: 'none', objectFit: 'contain'
-  });
+  overlay.width = width;
+  overlay.height = height;
   overlay.classList.add('is-active');
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, width, height);
-  const previous = overlayFaceTracks.get(overlay) || [];
-  const used = new Set();
-  const visibleFaces = detections.map((face) => {
-    const box = face.detection?.box || face.box;
-    if (!box) return face;
-    let bestIndex = -1, bestOverlap = 0;
-    previous.forEach((track, index) => {
-      if (used.has(index)) return;
-      const left = Math.max(box.x, track.box.x), top = Math.max(box.y, track.box.y);
-      const right = Math.min(box.x + box.width, track.box.x + track.box.width);
-      const bottom = Math.min(box.y + box.height, track.box.y + track.box.height);
-      const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
-      const overlap = Math.max(
-        intersection / (box.width * box.height + track.box.width * track.box.height - intersection || 1),
-        faceBoxOverlapRatio(box, track.box)
-      );
-      if (overlap > bestOverlap) { bestOverlap = overlap; bestIndex = index; }
-    });
-    const old = bestOverlap >= 0.12 ? previous[bestIndex] : null;
-    if (old) used.add(bestIndex);
-    const smooth = old ? {
-      x: old.box.x * 0.65 + box.x * 0.35,
-      y: old.box.y * 0.65 + box.y * 0.35,
-      width: old.box.width * 0.65 + box.width * 0.35,
-      height: old.box.height * 0.65 + box.height * 0.35
-    } : box;
-    const sameFace = old && faceDescriptorDistance(face.descriptor, old.face.descriptor) <= 0.48;
-    const stableIdentity = !face.matched && sameFace && old.face.matched ? {
-      matched: true,
-      matchName: old.face.matchName,
-      matchDistance: old.face.matchDistance,
-      matchLimit: old.face.matchLimit,
-      matchSupport: old.face.matchSupport,
-      identityGap: old.face.identityGap
-    } : {};
-    return { ...face, ...stableIdentity, box: smooth, detection: face.detection ? { ...face.detection, box: smooth } : undefined, missed: 0 };
-  });
-  previous.forEach((track, index) => {
-    const coveredByCurrent = detections.some((face) => {
-      const box = face.detection?.box || face.box;
-      return box && faceBoxOverlapRatio(box, track.box) >= 0.2;
-    });
-    if (!used.has(index) && !coveredByCurrent && track.missed < 4) visibleFaces.push({ ...track.face, box: track.box, detection: track.face.detection ? { ...track.face.detection, box: track.box } : undefined, missed: track.missed + 1 });
-  });
-  overlayFaceTracks.set(overlay, visibleFaces.map((face) => ({ face, box: { ...(face.detection?.box || face.box) }, missed: face.missed || 0 })));
-  ctx.lineWidth = Math.max(2, Math.round(width / 480));
-  ctx.lineJoin = 'round';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 3;
-  ctx.font = 'bold 12px Arial';
-  for (const face of visibleFaces) {
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 16px Arial';
+  for (const face of detections) {
     const box = face.detection?.box || face.box;
     if (!box) continue;
     const side = Math.min(Math.max(box.width, box.height), width, height);
     const x = Math.max(0, Math.min(width - side, box.x + (box.width - side) / 2));
     const y = Math.max(0, Math.min(height - side, box.y + (box.height - side) / 2));
-    ctx.strokeStyle = face.matched ? '#86efac' : face.identityPending ? '#facc15' : '#ff9800';
+    ctx.strokeStyle = face.matched ? '#18875b' : '#ff9800';
     ctx.strokeRect(x, y, side, side);
-    ctx.shadowBlur = 0;
-    const label = face.matched ? `Recognized: ${face.matchName}` : face.identityPending ? 'Checking identity…' : 'Unknown person';
-    const labelWidth = Math.min(width, ctx.measureText(label).width + 10);
+    const label = face.matched ? `Recognized: ${face.matchName}` : 'Unrecognized';
+    const labelWidth = Math.min(width, ctx.measureText(label).width + 12);
     const labelX = Math.min(x, width - labelWidth);
     const labelY = Math.max(0, y - 25);
-    ctx.fillStyle = face.matched ? '#00b84a' : '#ff9800';
-    ctx.fillRect(labelX, labelY, labelWidth, 20);
+    ctx.fillStyle = face.matched ? '#18875b' : '#ff9800';
+    ctx.fillRect(labelX, labelY, labelWidth, 25);
     ctx.fillStyle = '#111827';
-    ctx.fillText(label, labelX + 5, labelY + 15);
+    ctx.fillText(label, labelX + 6, labelY + 18);
   }
-  return visibleFaces.filter((face) => !face.missed);
 }
-function clearDetectedFaces(overlay = $('recognitionOverlay')) {
+function clearDetectedFaces() {
+  const overlay = $('recognitionOverlay');
   if (!overlay) return;
   overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
   overlay.classList.remove('is-active');
-  overlayFaceTracks.delete(overlay);
 }
 async function recognizeCameraFaces() {
   if (!faceRecognitionActive || faceRecognitionProcessing || !videoFrameReady()) return;
   faceRecognitionProcessing = true;
   const attempt = cameraAttempt;
   const generation = faceRecognitionGeneration;
-  const cameraId = monitoringCameraId();
+  const cameraId = Number(window.activeCameraId);
   try {
     // Match the same captured frame that is used for the unmatched-face alert.
-    const stream = usbCameraActive ? $('usbCameraVideo') : $('cameraImg');
-    const frameWidth = usbCameraActive ? stream.videoWidth : stream.naturalWidth;
-    const frameHeight = usbCameraActive ? stream.videoHeight : stream.naturalHeight;
+    const stream = $('cameraImg');
     const canvas = document.createElement('canvas');
-    const scale = Math.min(1, 960 / frameWidth);
-    canvas.width = Math.round(frameWidth * scale);
-    canvas.height = Math.round(frameHeight * scale);
-    const context = canvas.getContext('2d');
-    let faces = [];
-    for (const variant of [
-      { filter: 'none', threshold: 0.18 },
-      { filter: 'brightness(1.15) contrast(1.08)', threshold: 0.15 },
-      { filter: 'brightness(0.85) contrast(1.12)', threshold: 0.15 }
-    ]) {
-      context.clearRect?.(0, 0, canvas.width, canvas.height);
-      context.filter = variant.filter;
-      context.drawImage(stream, 0, 0, canvas.width, canvas.height);
-      faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: variant.threshold })).withFaceLandmarks().withFaceDescriptors();
-      if (faces.length) break;
-    }
-    context.filter = 'none';
-    let detections = await window.FaceManagement.classify(faces);
-    if (!faceRecognitionActive || generation !== faceRecognitionGeneration || attempt !== cameraAttempt || cameraId !== monitoringCameraId()) return;
-    await refreshOwnerEmailStatus();
-    if (!faceRecognitionActive || generation !== faceRecognitionGeneration || attempt !== cameraAttempt || cameraId !== monitoringCameraId()) return;
-    detections = drawDetectedFaces(detections, canvas.width, canvas.height, usbCameraActive ? $('usbRecognitionOverlay') : $('recognitionOverlay')) || detections;
+    const scale = Math.min(1, 960 / stream.naturalWidth);
+    canvas.width = Math.round(stream.naturalWidth * scale);
+    canvas.height = Math.round(stream.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(stream, 0, 0, canvas.width, canvas.height);
+    const faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.65 })).withFaceLandmarks().withFaceDescriptors();
+    const detections = await window.FaceManagement.classify(faces);
+    if (!faceRecognitionActive || generation !== faceRecognitionGeneration || attempt !== cameraAttempt || cameraId !== Number(window.activeCameraId)) return;
     const unmatched = detections.filter((face) => !face.matched);
-    $('faceRecognitionStatus').textContent = !detections.length
-      ? 'No face detected in frame. Check camera angle, lighting, and entry-area coverage.'
-      : detections[0]?.enrollmentCount === 0
-      ? 'No enrolled faces loaded'
-      : `${detections.length - unmatched.length} recognized, ${unmatched.length} unrecognized · ${ownerEmailStatusLabel()} - Monitoring on`;
+    drawDetectedFaces(detections, canvas.width, canvas.height);
+    $('faceRecognitionStatus').textContent = `${detections.length - unmatched.length} recognized, ${unmatched.length} unrecognized - Monitoring on`;
     if (!unmatched.length || Date.now() - lastSnapshotAt < 60000) return;
-    if (!cameraId) {
-      const status = usbCameraActive ? $('usbCameraStatus') : $('faceRecognitionStatus');
-      status.textContent = 'Face detected, but this camera URL is not saved. Save it to create snapshot alerts.';
-      return;
-    }
-    const snapshot = makeAlertSnapshot(canvas);
+    let snapshot = canvas.toDataURL('image/jpeg', 0.75);
+    if (snapshot.length > 540000) snapshot = canvas.toDataURL('image/jpeg', 0.4);
     const response = await fetch(`${API_BASE}/alerts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cameraId, snapshot, faceCount: Math.min(50, unmatched.length) }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Could not save snapshot alert.');
     lastSnapshotAt = Date.now();
-    ownerEmailConfigured = Boolean(result.emailConfigured);
-    $('faceRecognitionStatus').textContent = result.duplicate
-      ? 'Recent snapshot already queued; repeat email suppressed for 60 seconds'
-      : result.emailSent ? 'Unknown-face snapshot saved and emailed to owner'
-      : result.emailConfigured ? 'Snapshot saved, but email delivery failed. Check the Node server log.'
-      : 'Snapshot saved; owner email is not configured';
+    $('faceRecognitionStatus').textContent = result.duplicate ? 'Recent snapshot already queued for review' : 'Snapshot saved to Alerts for review';
     await loadAlerts();
   } catch (error) {
     if (attempt !== cameraAttempt || generation !== faceRecognitionGeneration) return;
@@ -804,7 +475,7 @@ async function recognizeCameraFaces() {
   } finally { faceRecognitionProcessing = false; }
 }
 async function startFaceRecognition() {
-  if (!window.currentRole || !connected || faceRecognitionActive) return;
+  if (!window.currentRole || !connected || !window.activeCameraId || faceRecognitionActive) return;
   const attempt = cameraAttempt;
   const generation = ++faceRecognitionGeneration;
   const button = $('toggleFaceRecognitionBtn');
@@ -819,7 +490,7 @@ async function startFaceRecognition() {
     updateFaceRecognitionCount();
     void recognizeCameraFaces();
   } catch (error) { $('faceRecognitionStatus').textContent = `Could not start detection: ${error.message}`; }
-  finally { button.disabled = !connected; }
+  finally { button.disabled = !connected || !window.activeCameraId; }
 }
 function stopFaceRecognition() {
   faceRecognitionGeneration++;
@@ -827,7 +498,6 @@ function stopFaceRecognition() {
   if (faceRecognitionTimer) clearInterval(faceRecognitionTimer);
   faceRecognitionTimer = null;
   clearDetectedFaces();
-  clearDetectedFaces($('usbRecognitionOverlay'));
   const button = $('toggleFaceRecognitionBtn');
   if (button) button.textContent = 'Start snapshot detection';
   updateFaceRecognitionCount();
@@ -835,36 +505,18 @@ function stopFaceRecognition() {
 $('toggleFaceRecognitionBtn').addEventListener('click', () => faceRecognitionActive ? stopFaceRecognition() : startFaceRecognition());
 window.addEventListener('camera:connected', startFaceRecognition);
 $('reloadAlertsBtn').addEventListener('click', loadAlerts);
-$('alertList').addEventListener('change', (event) => {
-  const checkbox = event.target.closest('[data-select-alert]');
-  if (!checkbox) return;
-  const id = Number(checkbox.dataset.selectAlert);
-  if (checkbox.checked) selectedAlertIds.add(id);
-  else selectedAlertIds.delete(id);
-  updateAlertBulkControls();
-});
-$('selectAllAlerts').addEventListener('change', (event) => {
-  selectedAlertIds = event.target.checked ? new Set(snapshotAlerts.map((item) => Number(item.id))) : new Set();
-  $('alertList').querySelectorAll('[data-select-alert]').forEach((checkbox) => { checkbox.checked = event.target.checked; });
-  updateAlertBulkControls();
-});
-$('archiveSelectedAlertsBtn').addEventListener('click', () => submitBulkAlertAction('archive'));
-$('deleteSelectedAlertsBtn').addEventListener('click', () => submitBulkAlertAction('delete'));
 $('alertView').addEventListener('change', () => {
-  selectedAlertIds.clear();
   alertView = $('alertView').value;
   alertPage = 0;
   void loadAlerts();
 });
 $('previousAlertsBtn').addEventListener('click', () => {
   if (alertPage === 0) return;
-  selectedAlertIds.clear();
   alertPage--;
   void loadAlerts();
 });
 $('nextAlertsBtn').addEventListener('click', () => {
   if (!alertHasMore) return;
-  selectedAlertIds.clear();
   alertPage++;
   void loadAlerts();
 });

@@ -6,15 +6,14 @@ const path = require('node:path');
 const script = fs.readFileSync(path.join(__dirname, '../public/script.js'), 'utf8');
 const code = script.slice(script.indexOf('function updateFaceRecognitionCount()'), script.indexOf("$('toggleFaceRecognitionBtn').addEventListener"));
 
-function detector(faces, cameraId = 1) {
+function detector(faces) {
   const posted = [];
   const elements = { cameraImg: { src: 'camera', naturalWidth: 640, naturalHeight: 480 }, faceRecognitionStatus: {}, toggleFaceRecognitionBtn: {} };
   const context = vm.createContext({
     $: (id) => elements[id], API_BASE: '/api', connected: true, cameraAttempt: 1,
-    usbCameraActive: false,
     faceRecognitionActive: true, faceRecognitionProcessing: false, lastSnapshotAt: 0,
     faceRecognitionGeneration: 0, faceRecognitionTimer: null,
-    window: { activeCameraId: cameraId, FaceManagement: { classify: async (faces) => faces.map((face) => ({ ...face, matched: Boolean(face.matched) })) } }, Date,
+    window: { activeCameraId: 1, FaceManagement: { classify: async (faces) => faces.map((face) => ({ ...face, matched: Boolean(face.matched) })) } }, Date,
     document: { createElement: () => ({ getContext: () => ({ drawImage() {} }), toDataURL: () => 'data:image/jpeg;base64,/9j/2Q==' }) },
     faceapi: { TinyFaceDetectorOptions: class {}, detectAllFaces: () => ({ withFaceLandmarks: () => ({ withFaceDescriptors: async () => faces }) }) },
     fetch: async (url, options) => { posted.push({ url, data: JSON.parse(options.body) }); return { ok: true, json: async () => ({ id: '1' }) }; },
@@ -24,7 +23,7 @@ function detector(faces, cameraId = 1) {
   return { context, posted, elements };
 }
 
-test('orange face boxes use image coordinates and persist through brief missed detections', async () => {
+test('orange face boxes use image coordinates and clear when a face leaves during cooldown', async () => {
   const { context, elements } = detector([{ box: { x: 100, y: 80, width: 60, height: 80 } }]);
   const strokes = [];
   let cleared = 0;
@@ -39,13 +38,9 @@ test('orange face boxes use image coordinates and persist through brief missed d
   assert.equal(elements.recognitionOverlay.height, 480);
   assert.deepEqual(strokes, [{ box: [90, 80, 80, 80], color: '#ff9800' }]);
   context.faceapi.detectAllFaces = () => ({ withFaceLandmarks: () => ({ withFaceDescriptors: async () => [] }) });
-  for (let miss = 0; miss < 4; miss++) {
-    await context.recognizeCameraFaces();
-    assert.equal(strokes.length, 1);
-  }
   await context.recognizeCameraFaces();
   assert.equal(strokes.length, 0);
-  assert.equal(cleared, 6);
+  assert.equal(cleared, 2);
 });
 
 test('unmatched-face detection saves a snapshot without descriptors, then throttles repeated frames', async () => {
@@ -60,12 +55,6 @@ test('frames without faces do not create alerts', async () => {
   const { context, posted } = detector([]);
   await context.recognizeCameraFaces();
   assert.equal(posted.length, 0);
-});
-test('an unsaved ESP32 stream still recognizes and draws faces but asks to save before creating alerts', async () => {
-  const { context, posted, elements } = detector([{ score: 0.9 }], null);
-  await context.recognizeCameraFaces();
-  assert.equal(posted.length, 0);
-  assert.match(elements.faceRecognitionStatus.textContent, /URL is not saved/);
 });
 test('an old detection result cannot upload after the camera changes', async () => {
   const { context, posted } = detector([{}]);

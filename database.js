@@ -9,8 +9,7 @@ const pool = new Pool({
   ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
   // Express handles several dashboard API requests concurrently. A single
   // connection can leave session-store requests waiting until they time out.
-  // Keep serverless instances light on Supabase connections by default.
-  max: Number(process.env.DB_POOL_MAX || (process.env.VERCEL ? 1 : 5)),
+  max: Number(process.env.DB_POOL_MAX || 5),
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 10000
 });

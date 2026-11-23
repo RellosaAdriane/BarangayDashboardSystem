@@ -120,5 +120,5 @@ module.exports = function registerDeviceRecordings(app, pool, requireAuth, allow
   }));
   // Existing browser recordings and archive routes also need the provider columns.
   app.use('/api/recordings', requireAuth, (req, res, next) => handle(async () => next())(req, res));
-  return { ensureSchema, storage, deviceAuth };
+  return { ensureSchema, storage };
 };

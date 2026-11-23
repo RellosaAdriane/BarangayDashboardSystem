@@ -19,7 +19,7 @@ ALTER TABLE public.camera_alerts ADD COLUMN IF NOT EXISTS actioned_at timestampt
 ALTER TABLE public.camera_alerts ADD COLUMN IF NOT EXISTS action_note text;
 ALTER TABLE public.camera_alerts DROP CONSTRAINT IF EXISTS camera_alerts_status_check;
 ALTER TABLE public.camera_alerts ADD CONSTRAINT camera_alerts_status_check
-  CHECK (status IN ('email_pending', 'pending', 'approved', 'dismissed', 'recognized', 'unrecognized', 'report'));
+  CHECK (status IN ('pending', 'approved', 'dismissed', 'recognized', 'unrecognized', 'report'));
 CREATE INDEX IF NOT EXISTS camera_alerts_detected_idx ON public.camera_alerts (detected_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS camera_alerts_camera_detected_idx ON public.camera_alerts (camera_id, detected_at DESC);
 ALTER TABLE public.camera_alerts ENABLE ROW LEVEL SECURITY;

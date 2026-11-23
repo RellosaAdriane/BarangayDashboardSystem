@@ -4,9 +4,6 @@
   "private": true,
   "description": "Barangay monitoring dashboard with a starter Express API",
   "main": "server.js",
-  "engines": {
-    "node": "22.x"
-  },
   "scripts": {
     "vercel-build": "node scripts/generate-runtime-schemas.cjs",
     "generate:schemas": "node scripts/generate-runtime-schemas.cjs",
@@ -16,13 +13,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1168.0",
     "@aws-sdk/s3-request-presigner": "^3.1168.0",
-    "@napi-rs/canvas": "1.1.1",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
-    "@tensorflow-models/mobilenet": "^2.1.1",
-    "@tensorflow/tfjs": "4.22.0",
-    "@tensorflow/tfjs-backend-wasm": "4.22.0",
-    "@vladmandic/face-api": "1.7.15",
     "bcryptjs": "^3.0.3",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^18.0.8",

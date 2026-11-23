@@ -1,6 +1,6 @@
 # AI Thinker ESP32-CAM → Vercel → Cloudflare R2
 
-This version records silent, 60-second SVGA (800×600), approximately 5 FPS MJPEG AVI clips on the camera's microSD card using JPEG quality 12. SVGA gives browser face detection more facial pixels than VGA while JPEG quality 12 balances image detail and stream size. ESP32-CAM JPEG quality is inverse: lower values preserve more image detail but create larger frames. If the stream is too slow, use VGA at quality 12; for more detail on a fast local network, try SVGA at quality 10. The on-board flash LED remains at a very dim duty of 8/255 as a camera-ready indicator, not as scene lighting. The camera requests a signed URL from the existing Express API, uploads directly to a private R2 bucket, then confirms the recording. Supabase continues storing metadata and accounts. Render and FFmpeg are not used. The dashboard decodes the AVI's JPEG frames in the browser, including pause and seek; it does not depend on native AVI support in `<video>`.
+This version records silent, 60-second QVGA (320×240), approximately 5 FPS MJPEG AVI clips on the camera's microSD card. The camera requests a signed URL from the existing Express API, uploads directly to a private R2 bucket, then confirms the recording. Supabase continues storing metadata and accounts. Render and FFmpeg are not used. The dashboard decodes the AVI's JPEG frames in the browser, including pause and seek; it does not depend on native AVI support in `<video>`.
 
 The code can be compiled and tested without R2 credentials. Real uploads, sustained recording performance and camera power/SD reliability must be tested on the actual board.
 
@@ -87,31 +87,9 @@ Insert a FAT32 microSD card. Use a stable regulated 5 V supply for the board; th
 
 The sketch uses 1-bit SD mode, leaving the flash LED's GPIO4 out of SD data transfers. Do not add peripherals on the camera/SD pins without checking the mapping.
 
-## 6. Cloud face monitoring while the PC is off
-
-The cloud monitor is part of the firmware and Vercel API. It captures one SVGA JPEG every eight seconds and sends it over HTTPS to `/api/device/face-frame`. Vercel runs the face detector and descriptor model, compares the result with the enrolled descriptors in Supabase, saves an unknown-face snapshot in Alerts, and sends the existing Resend email. The 60-second per-camera alert cooldown still applies. No browser, PC, microSD card, port-forwarding rule, or inbound camera port is needed for recognition and email; the ESP32-CAM itself must stay powered and online. The sketch keeps the existing low flash-indicator setting.
-
-1. In the dashboard, save and enable the camera, then open **Recording history → Camera upload access**, select it, and press **Generate token**. Copy its camera-specific `bwcam_...` token. Revoke and replace it if it is lost.
-2. In Vercel, open **Project → Settings → Deployment Protection → Protection Bypass for Automation** and generate a bypass secret. The current project uses Vercel Authentication, so the ESP32 must send this header to reach its API. Vercel accepts `x-vercel-protection-bypass` for automation requests.[Vercel documentation](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation)
-3. Add the camera token and bypass secret to your existing local `ESP32/BarangayRecorder/secrets.h` (do not overwrite your Wi-Fi values):
-
-   ```cpp
-   const char* API_BASE_URL = "https://pob3-a.vercel.app";
-   const char* DEVICE_TOKEN = "bwcam_...";
-   #define VERCEL_PROTECTION_BYPASS "..."
-   ```
-
-4. In Arduino IDE, install the versions listed in section 5, select **AI Thinker ESP32-CAM** with PSRAM and a large app partition, then upload `ESP32/BarangayRecorder/BarangayRecorder.ino`. Open Serial Monitor at **115200 baud**. Look for `Cloud face monitoring started` and then `Cloud face check: ...`. Keep the camera connected to power and Wi-Fi. You can close or shut down the PC after the camera is running.
-
-The camera sends JPEGs up to 1.5 MB. If Serial Monitor reports that a frame is too large, improve the scene lighting or reduce the camera resolution only after confirming the image still has enough facial detail. To disable device access, revoke its token in the dashboard; if the Vercel bypass secret is exposed, regenerate it and update/reflash the firmware.
-
-If the cloud check fails, read the full Serial Monitor message. `DNS could not resolve` means the ESP32 is connected to Wi-Fi but cannot look up the Vercel hostname; use a normal internet-connected 2.4 GHz network, not a guest network or captive portal. `TLS error` means DNS worked but HTTPS negotiation failed; make sure NTP time synchronized and the built-in certificate bundle is enabled. An HTTP `401` or `403` means the request reached Vercel but its device token or Protection Bypass needs attention. The sketch logs these separately. ESP32 Arduino's `WiFi.hostByName()` reports DNS resolution success or failure.[Espressif Network API](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/network.html)
-
-## 7. Check the first recording
+## 6. Check the first recording
 
 Open **Serial Monitor at 115200 baud**. The camera needs Wi-Fi and NTP at boot for correct UTC timestamps and HTTPS validation. After time synchronization, expect:
-
-Camera JPEG frames are written to SD one 512-byte sector at a time through a DMA-capable buffer. This keeps SDMMC bounce-buffer requests small when camera frames are stored in PSRAM and TLS is active. If recording still reports `allocate_dma_buf: not enough mem`, check the firmware's free/largest DMA block diagnostics and use a card rated Class 10/U1 or better.
 
 ```text
 Local live stream: http://CAMERA_IP:81/stream
@@ -123,7 +101,7 @@ Update the saved camera stream URL to that IP. The local MJPEG stream is for vie
 
 Once a clip is confirmed, open **Recording history**, press **Load recordings**, and choose **Play**. The player downloads one clip (maximum 64 MiB) into browser memory and decodes one JPEG at a time. Download the original if needed. The recordings have no audio. Date filters use Philippine time; firmware/API device timestamps use UTC.
 
-## 8. Test failure and recovery
+## 7. Test failure and recovery
 
 - Disconnect Wi-Fi after the board has synchronized its clock. New clips should remain queued on SD. Reconnect; uploads should retry with backoff.
 - Reset the camera after a clip is queued. The `.json` and `.avi` pair should upload after reboot. Retries reuse the recording ID, and R2 uploads are conditional to avoid overwriting the object. The API verifies size, MIME type and finalized AVI header before inserting the history row.

@@ -46,9 +46,7 @@ test('snapshot alerts enforce authentication, review roles, deduplication and on
       row.readAt ||= new Date().toISOString();
       return { rowCount: 1 };
     }
-    if (sql.startsWith('SELECT id, name, location FROM cameras')) return params[0] === 1
-      ? { rowCount: 1, rows: [{ id: 1, name: 'CAM 01', location: 'Test location' }] }
-      : { rowCount: 0, rows: [] };
+    if (sql.startsWith('SELECT id FROM cameras')) return { rowCount: params[0] === 1 ? 1 : 0 };
     if (sql.includes("INTERVAL '60 seconds'")) return { rowCount: records.length, rows: records };
     if (sql.startsWith('INSERT INTO camera_alerts')) { records.push({ id: '1', status: 'pending', snapshot: params[3] }); return { rows: records }; }
     if (sql.startsWith('UPDATE')) {

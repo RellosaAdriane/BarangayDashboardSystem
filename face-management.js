@@ -39,8 +39,6 @@ module.exports = function registerFaceManagement(app, pool, requireAuth, allow) 
     res.set('Cache-Control', 'private, no-store').set('X-Content-Type-Options', 'nosniff').type(rows[0].photo_type).send(rows[0].photo);
   }));
   app.post('/api/faces', allow('admin'), parsePhoto, handle(async (req, res) => {
-    const DUPLICATE_FACE_DISTANCE = 0.35;
-    const SAME_PERSON_DISTANCE = 0.48;
     const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
     let descriptor;
     try { descriptor = JSON.parse(req.body?.descriptor); } catch { /* Validate below. */ }
@@ -58,30 +56,6 @@ module.exports = function registerFaceManagement(app, pool, requireAuth, allow) 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const existingFaces = await client.query('SELECT full_name AS "fullName", descriptor FROM enrolled_faces');
-      const normalizedName = fullName.normalize('NFKC').toLocaleLowerCase();
-      const faceDistance = (person) => {
-        if (!Array.isArray(person.descriptor) || person.descriptor.length !== 128) return Infinity;
-        let sum = 0;
-        for (let index = 0; index < 128; index++) {
-          const difference = descriptor[index] - Number(person.descriptor[index]);
-          sum += difference * difference;
-        }
-        return Math.sqrt(sum);
-      };
-      const sameName = existingFaces.rows.filter((person) =>
-        String(person.fullName).trim().normalize('NFKC').toLocaleLowerCase() === normalizedName);
-      if (sameName.length && Math.min(...sameName.map(faceDistance)) > SAME_PERSON_DISTANCE) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: `This face does not match the existing enrollment for ${fullName}. Use a photo of that person.` });
-      }
-      const duplicate = existingFaces.rows.find((person) =>
-        String(person.fullName).trim().normalize('NFKC').toLocaleLowerCase() !== normalizedName
-        && faceDistance(person) <= DUPLICATE_FACE_DISTANCE);
-      if (duplicate) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: `This face is already enrolled as ${duplicate.fullName}. Use the same name when adding another photo.` });
-      }
       const { rows } = await client.query('INSERT INTO enrolled_faces (full_name, descriptor, photo, photo_type, enrolled_by) VALUES ($1, $2, $3, $4, $5) RETURNING id, full_name AS "fullName", enrolled_at AS "enrolledAt"', [fullName, descriptor, photo, mime, req.session.user.id]);
       await audit(client, req, 'created', rows[0].id, { fullName });
       await client.query('COMMIT');

@@ -27,8 +27,19 @@
   }
   async function loadAnimalClassifier() {
     if (!animalClassifierPromise) animalClassifierPromise = (async () => {
-      if (!window.tf) await loadScript('/vendor/tf.min.js');
-      if (!window.mobilenet) await loadScript('/vendor/mobilenet.min.js');
+      if (typeof window.tf?.setBackend !== 'function' || typeof window.tf?.ready !== 'function') {
+        await loadScript('/vendor/tf.min.js');
+      }
+      if (typeof window.tf?.setBackend !== 'function' || typeof window.tf?.ready !== 'function') {
+        throw new Error('The local TensorFlow.js bundle did not expose the required API.');
+      }
+      // Another script or browser extension may define `mobilenet` without
+      // exposing the TensorFlow.js MobileNet API. Check the method we use,
+      // rather than treating any truthy global as a successful load.
+      if (typeof window.mobilenet?.load !== 'function') await loadScript('/vendor/mobilenet.min.js');
+      if (typeof window.mobilenet?.load !== 'function') {
+        throw new Error('The local MobileNet bundle did not expose mobilenet.load().');
+      }
       if (!await window.tf.setBackend('cpu')) throw new Error('TensorFlow CPU backend is unavailable.');
       await window.tf.ready();
       return window.mobilenet.load({ version: 2, alpha: 0.5, modelUrl: '/models/mobilenet/model.json', inputRange: [0, 1] });
@@ -190,7 +201,7 @@
           nameOptions.appendChild(option);
         }
       }
-      byId('enrolledFaceCount').textContent = `${groups.size} people · ${people.length} photos`;
+      byId('enrolledFaceCount').textContent = `${groups.size} people Â· ${people.length} photos`;
       list.replaceChildren();
       if (!groups.size) {
         const empty = document.createElement('p');
@@ -304,3 +315,4 @@
   byId('refreshFacesBtn').addEventListener('click', loadPeople);
   window.FaceManagement = { classify, loadPeople, invalidate };
 })();
+

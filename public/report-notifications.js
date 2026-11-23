@@ -6,7 +6,7 @@
   let reports = { unread: 0, notifications: [] };
   let announcements = { unread: 0, announcements: [] };
   const seen = new Set();
-  const eligible = () => ['tanod', 'captain', 'admin'].includes(window.currentRole);
+  const eligible = () => ['tanod', 'captain'].includes(window.currentRole);
   const key = (item) => `${item.kind}:${item.kind === 'announcement' ? item.id : item.notificationId}`;
 
   async function openAnnouncement(item) {
@@ -24,11 +24,8 @@
   async function openNotification(item) {
     try {
       if (item.kind === 'announcement') await openAnnouncement(item);
-      else if (item.kind === 'report') await window.openReportedSnapshot(item);
-      else await window.openPendingSnapshot(item);
-      const endpoint = item.kind === 'announcement' ? `/api/announcement-notifications/${item.id}/read`
-        : item.kind === 'report' ? `/api/report-notifications/${item.notificationId}/read`
-        : `/api/snapshot-notifications/${item.notificationId}/read`;
+      else await window.openReportedSnapshot(item);
+      const endpoint = item.kind === 'announcement' ? `/api/announcement-notifications/${item.id}/read` : `/api/report-notifications/${item.notificationId}/read`;
       const response = await fetch(endpoint, { method: 'PATCH' });
       if (!response.ok) throw new Error('Could not mark notification as read.');
       byId('reportNotificationPanel').hidden = true;
@@ -39,7 +36,7 @@
   function render(data) {
     byId('reportUnreadCount').textContent = String(data.unread);
     byId('reportUnreadCount').hidden = data.unread === 0;
-    byId('reportNotificationBtn').setAttribute('aria-label', `Dashboard notifications: ${data.unread} unread notifications`);
+    byId('reportNotificationBtn').setAttribute('aria-label', `Announcements and reports: ${data.unread} unread notifications`);
     const list = byId('reportNotificationList');
     list.replaceChildren();
     for (const item of data.notifications) {
@@ -47,23 +44,15 @@
       button.type = 'button';
       button.className = `report-notification-item${item.readAt ? '' : ' unread'}`;
       const title = document.createElement('strong');
-      title.textContent = item.kind === 'announcement' ? `Announcement - ${item.title}`
-        : item.kind === 'report' ? `Reported face snapshot - ${item.cameraName}`
-        : `Unknown face detected - ${item.cameraName}`;
+      title.textContent = item.kind === 'announcement' ? `Announcement - ${item.title}` : `Reported face snapshot - ${item.cameraName}`;
       const details = document.createElement('span');
       details.textContent = `${item.kind === 'announcement' ? item.author || 'Barangay office' : item.location || 'Location not set'} · ${new Date(item.notifiedAt).toLocaleString()}`;
       const note = document.createElement('span');
-      note.textContent = item.kind === 'announcement' ? item.body.slice(0, 160)
-        : item.kind === 'report' ? item.reviewNote || 'Open snapshot for details and follow-up.'
-        : `${item.faceCount} unfamiliar face(s) captured. Open the snapshot for review.`;
+      note.textContent = item.kind === 'announcement' ? item.body.slice(0, 160) : item.reviewNote || 'Open snapshot for details and follow-up.';
       button.append(title, details, note);
-      if (item.kind === 'report') {
+      if (item.kind !== 'announcement') {
         const action = document.createElement('span');
         action.textContent = item.actionedAt ? 'Actioned' : 'Awaiting action';
-        button.appendChild(action);
-      } else if (item.kind === 'snapshot') {
-        const action = document.createElement('span');
-        action.textContent = 'Awaiting review';
         button.appendChild(action);
       }
       button.addEventListener('click', () => openNotification(item));
@@ -72,7 +61,7 @@
     if (!data.notifications.length) {
       const empty = document.createElement('p');
       empty.className = 'empty';
-      empty.textContent = 'No new notifications for your role.';
+      empty.textContent = 'No announcements or report notifications yet.';
       list.appendChild(empty);
     }
   }
@@ -81,30 +70,22 @@
     const version = generation;
     loading = true;
     try {
-      const sources = [
-        ...(window.currentRole === 'admin' || window.currentRole === 'captain' ? [['snapshot', '/api/snapshot-notifications']] : []),
-        ...(window.currentRole !== 'admin' ? [['report', '/api/report-notifications'], ['announcement', '/api/announcement-notifications']] : [])
-      ];
-      const results = await Promise.allSettled(sources.map(async ([, url]) => {
+      const results = await Promise.allSettled(['/api/report-notifications', '/api/announcement-notifications'].map(async (url) => {
         const response = await fetch(url, { cache: 'no-store' });
         if (!response.ok) throw new Error('Could not load notifications.');
         return response.json();
       }));
       if (version !== generation || !eligible()) return;
       if (results.every((result) => result.status === 'rejected')) throw new Error('Could not load notifications. Retrying automatically.');
-      let unread = 0;
-      const notifications = [];
-      results.forEach((result, index) => {
-        if (result.status !== 'fulfilled') return;
-        const [kind] = sources[index];
-        const value = result.value;
-        unread += Number(value.unread) || 0;
-        if (kind === 'report') reports = value;
-        else if (kind === 'announcement') announcements = value;
-        const items = kind === 'announcement' ? value.announcements : value.notifications;
-        notifications.push(...items.map((item) => ({ ...item, kind })));
-      });
-      const data = { unread, notifications: notifications.sort((a, b) => Number(Boolean(a.readAt)) - Number(Boolean(b.readAt)) || new Date(b.notifiedAt) - new Date(a.notifiedAt)) };
+      if (results[0].status === 'fulfilled') reports = results[0].value;
+      if (results[1].status === 'fulfilled') announcements = results[1].value;
+      const data = {
+        unread: reports.unread + announcements.unread,
+        notifications: [
+          ...reports.notifications.map((item) => ({ ...item, kind: 'report' })),
+          ...announcements.announcements.map((item) => ({ ...item, kind: 'announcement' }))
+        ].sort((a, b) => Number(Boolean(a.readAt)) - Number(Boolean(b.readAt)) || new Date(b.notifiedAt) - new Date(a.notifiedAt))
+      };
       render(data);
       byId('reportNotificationStatus').textContent = results.some((result) => result.status === 'rejected') ? 'Some notifications could not refresh. Retrying automatically.' : '';
       const incoming = data.notifications.filter((item) => !item.readAt && !seen.has(key(item)));
@@ -113,7 +94,7 @@
         try {
           const item = incoming[0];
           const notification = new Notification('BarangayWatch: new notification', {
-            body: incoming.length === 1 ? item.kind === 'announcement' ? item.title : `${item.cameraName} - ${item.location || (item.kind === 'snapshot' ? 'Unknown face snapshot needs review' : 'Open for details')}` : `${incoming.length} new notifications need your attention.`,
+            body: incoming.length === 1 ? item.kind === 'announcement' ? item.title : `${item.cameraName} - ${item.location || 'Open for details'}` : `${incoming.length} new announcements or reports need your attention.`,
             tag: `barangay-${key(item)}`
           });
           notification.onclick = () => { window.focus(); void openNotification(item); notification.close(); };

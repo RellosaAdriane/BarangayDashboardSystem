@@ -31,17 +31,13 @@ function client() {
   };
 }
 
-test('face matching recognizes close enrolled descriptors and reports the nearest distant match', async () => {
+test('face-api.js matcher recognizes enrolled descriptors and leaves distant faces unmatched', async () => {
   const c = client();
   const results = await c.api.classify([{ descriptor: new Float32Array(128).fill(0.1) }, { descriptor: new Float32Array(128).fill(0.8) }]);
   assert.equal(results[0].matched, true);
   assert.equal(results[0].matchName, 'Enrolled Person');
-  assert.ok(results[0].matchDistance < 1e-6);
-  assert.equal(results[0].enrollmentCount, 1);
   assert.equal(results[1].matched, false);
   assert.equal(results[1].matchName, '');
-  assert.equal(results[1].nearestName, 'Enrolled Person');
-  assert.ok(results[1].matchDistance > 0.6);
 });
 
 test('removing enrollment invalidates matching and other viewers refresh within the polling interval', async () => {
@@ -104,7 +100,7 @@ test('Add Person refuses pictures with no face or multiple faces before sending 
     const c = enrollmentClient(count);
     await c.submit();
     assert.equal(c.posts.length, 0);
-    assert.match(c.elements.get('faceManagementStatus').textContent, count === 0 ? /Could not find a face/ : /More than one face/);
+    assert.match(c.elements.get('faceManagementStatus').textContent, count === 0 ? /No clear face/ : /More than one face/);
     assert.equal(c.elements.get('addPersonBtn').disabled, false);
   }
 });

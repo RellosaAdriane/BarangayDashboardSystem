@@ -20,7 +20,6 @@ function dashboard(protocol = 'http:', savedCamera = 1) {
   };
   const context = vm.createContext({
     $: element, API_BASE: '/api', connected: false, cameraAttempt: 0,
-    usbCameraActive: false,
     cameraLoadTimer: null, cameraFirstFrameTimer: null,
     URL, Date, Event, fetch: () => Promise.resolve(),
     window: { activeCameraId: savedCamera, location: { protocol, origin: `${protocol}//localhost:3000` }, dispatchEvent() {} },
