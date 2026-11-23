@@ -74,7 +74,7 @@
                 <div class="panel-head"><div><h3>Local USB Webcam</h3><div class="sub">Camera connected to this computer</div><button class="btn usb-camera-collapse" id="toggleUsbCameraPanelBtn" type="button" aria-controls="usbCameraBody" aria-expanded="true">Hide preview</button></div><span class="tag amber" id="usbCameraBadge">NOT CONNECTED</span></div>
                 <div id="usbCameraBody">
                 <div class="camera-frame usb-camera-frame"><video id="usbCameraVideo" autoplay playsinline muted></video><canvas id="usbRecognitionOverlay" aria-hidden="true"></canvas><span class="live-tag" id="usbLiveTag">LIVE</span></div>
-                <div class="field-row"><select class="form-control" id="usbDeviceSelect" aria-label="USB webcam"></select><button class="btn primary" id="connectUsbCameraBtn" type="button">Connect USB Camera</button><button class="btn" id="disconnectUsbCameraBtn" type="button" disabled>Disconnect</button></div>
+                <div class="field-row"><select class="form-control" id="usbDeviceSelect" aria-label="USB webcam"><option value="">Default camera</option></select><button class="btn" id="refreshUsbCamerasBtn" type="button">Refresh cameras</button><button class="btn primary" id="connectUsbCameraBtn" type="button">Connect USB Camera</button><button class="btn" id="disconnectUsbCameraBtn" type="button" disabled>Disconnect</button></div>
                 <label class="sub" for="usbAlertCameraSelect">Save alerts under camera record</label><select class="form-control" id="usbAlertCameraSelect"><option value="">Select a saved camera</option></select>
                 <p class="hint" id="usbCameraStatus" role="status">Allow camera access when prompted. Select a saved camera record to enable snapshot alerts.</p>
                 </div>
@@ -235,7 +235,7 @@
 </dialog>
 <script src="/mjpeg-avi.js?v=20261114"></script>
 <script src="/device-recordings.js?v=20261114-playback-ui"></script>
-<script src="/script.js?v=20261119-instant-face-notifications"></script>
+<script src="/script.js?v=20261123-usb-camera-choice-fix"></script>
 <script src="/faces.js?v=20261123-person-check-loader-fix"></script>
 <script src="/camera-grid.js?v=20261118-dedupe-face-overlay"></script>
 <script src="/report-notifications.js?v=20261119-snapshot-notifications-v2"></script>

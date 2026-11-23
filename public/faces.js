@@ -1,14 +1,12 @@
 (() => {
   const byId = (id) => document.getElementById(id);
-  const MATCH_DISTANCE = 0.48;
-  const MIN_IDENTITY_GAP = 0.07;
+  const MATCH_DISTANCE = 0.5;
   let enrolled = [];
+  let matcher = null;
   let refreshedAt = 0;
   let refreshing = null;
   let revision = 0;
   let saving = false;
-  let animalClassifierPromise = null;
-  const ANIMAL_CLASS = /\b(?:dog|puppy|retriever|terrier|spaniel|bulldog|shepherd|poodle|chihuahua|pug|mastiff|husky|beagle|collie|corgi|rottweiler|doberman|dachshund|malamute|shih[ -]?tzu|boxer|greyhound|whippet|hound|cat|kitten|feline|bird|parrot|macaw|owl|eagle|duck|goose|chicken|fish|shark|whale|dolphin|horse|pony|donkey|cow|ox|sheep|goat|pig|boar|bear|fox|wolf|lion|tiger|leopard|elephant|deer|giraffe|monkey|ape|chimpanzee|rabbit|hare|mouse|rat|hamster|squirrel|raccoon|skunk|otter|seal|walrus|snake|cobra|python|lizard|gecko|iguana|turtle|tortoise|frog|toad|crocodile|alligator|kangaroo|koala|zebra|camel|llama|alpaca|bat|spider|scorpion|butterfly|insect|beetle|snail|octopus|crab|lobster|animal)\b/i;
 
   async function request(path, options = {}) {
     const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...options });
@@ -16,80 +14,11 @@
     if (!response.ok) throw new Error(data.error || 'Face management request failed.');
     return data;
   }
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error('Could not load the human-versus-animal check. Check your internet connection and try again.'));
-      document.head.appendChild(script);
-    });
-  }
-  async function loadAnimalClassifier() {
-    if (!animalClassifierPromise) animalClassifierPromise = (async () => {
-      if (typeof window.tf?.setBackend !== 'function' || typeof window.tf?.ready !== 'function') {
-        await loadScript('/vendor/tf.min.js');
-      }
-      if (typeof window.tf?.setBackend !== 'function' || typeof window.tf?.ready !== 'function') {
-        throw new Error('The local TensorFlow.js bundle did not expose the required API.');
-      }
-      // Another script or browser extension may define `mobilenet` without
-      // exposing the TensorFlow.js MobileNet API. Check the method we use,
-      // rather than treating any truthy global as a successful load.
-      if (typeof window.mobilenet?.load !== 'function') await loadScript('/vendor/mobilenet.min.js');
-      if (typeof window.mobilenet?.load !== 'function') {
-        throw new Error('The local MobileNet bundle did not expose mobilenet.load().');
-      }
-      if (!await window.tf.setBackend('cpu')) throw new Error('TensorFlow CPU backend is unavailable.');
-      await window.tf.ready();
-      return window.mobilenet.load({ version: 2, alpha: 0.5, modelUrl: '/models/mobilenet/model.json', inputRange: [0, 1] });
-    })().catch((error) => { animalClassifierPromise = null; throw error; });
-    return animalClassifierPromise;
-  }
-  async function rejectAnimalFace(image, face) {
-    let classifier;
-    try { classifier = await loadAnimalClassifier(); }
-    catch (error) {
-      console.error('Local person-check model failed:', error);
-      throw new Error(`Could not load the local person-check model (${error.message}). Refresh the dashboard or contact the administrator.`);
-    }
-    const box = face.detection.box;
-    const side = Math.min(Math.max(box.width, box.height) * 1.65, image.width, image.height);
-    const x = Math.max(0, Math.min(image.width - side, box.x + (box.width - side) / 2));
-    const y = Math.max(0, Math.min(image.height - side, box.y + (box.height - side) / 2));
-    const crop = document.createElement('canvas');
-    crop.width = 224;
-    crop.height = 224;
-    crop.getContext('2d').drawImage(image, x, y, side, side, 0, 0, crop.width, crop.height);
-    const predictions = await classifier.classify(crop, 5);
-    const animal = predictions.find((prediction) => prediction.probability >= 0.2 && ANIMAL_CLASS.test(prediction.className));
-    if (animal) throw new Error('Animal faces cannot be enrolled. Upload a clear photo of a person instead.');
-  }
   function invalidate() {
     revision++;
     refreshedAt = 0;
+    matcher = null;
     enrolled = [];
-  }
-  function conflictingEnrollment(descriptor, fullName) {
-    const name = fullName.trim().normalize('NFKC').toLocaleLowerCase();
-    let sameNameDistance = Infinity;
-    let sameName = '';
-    for (const person of enrolled) {
-      let sum = 0;
-      for (let index = 0; index < 128; index++) {
-        const difference = descriptor[index] - Number(person.descriptor[index]);
-        sum += difference * difference;
-      }
-      const distance = Math.sqrt(sum);
-      if (person.fullName.trim().normalize('NFKC').toLocaleLowerCase() === name) {
-        if (distance < sameNameDistance) sameNameDistance = distance;
-        sameName = person.fullName;
-      } else if (distance <= 0.35) {
-        return `This face is already enrolled as ${person.fullName}. Use the same name when adding another photo.`;
-      }
-    }
-    if (sameName && sameNameDistance > 0.48) return `This face does not match the existing enrollment for ${sameName}. Use a photo of that person.`;
-    return '';
   }
   async function refreshMatcher() {
     if (Date.now() - refreshedAt < 3000) return;
@@ -98,159 +27,65 @@
     refreshing = (async () => {
       const people = await request('/api/faces/descriptors');
       if (version !== revision) return;
-      enrolled = people.filter((person) => Array.isArray(person.descriptor)
-        && person.descriptor.length === 128
-        && person.descriptor.every((value) => Number.isFinite(Number(value)))
-        && person.descriptor.some((value) => Number(value) !== 0));
+      const labels = people.map((person) => new faceapi.LabeledFaceDescriptors(String(person.id), [new Float32Array(person.descriptor)]));
+      matcher = labels.length ? new faceapi.FaceMatcher(labels, MATCH_DISTANCE) : null;
+      enrolled = people;
       refreshedAt = Date.now();
     })();
     try { await refreshing; } finally { refreshing = null; }
     if (version !== revision) await refreshMatcher();
   }
   async function classify(detections) {
-    await refreshMatcher();
-    const classified = detections.map((face) => {
-      const distanceByIdentity = new Map();
-      if (face.descriptor?.length === 128) for (const person of enrolled) {
-        let sum = 0;
-        for (let index = 0; index < 128; index++) {
-          const difference = face.descriptor[index] - Number(person.descriptor[index]);
-          sum += difference * difference;
-        }
-        const distance = Math.sqrt(sum);
-        const key = person.fullName.trim().normalize('NFKC').toLocaleLowerCase();
-        const current = distanceByIdentity.get(key);
-        if (current) current.distances.push(distance);
-        else distanceByIdentity.set(key, { person, distances: [distance] });
-      }
-      const ranked = [...distanceByIdentity.values()].map((identity) => {
-        const distances = identity.distances.sort((a, b) => a - b);
-        // Multiple enrollment photos provide pose coverage. Requiring two photos
-        // to match at once rejects valid side views when only one enrollment
-        // photo has a similar angle, so rank the identity by its closest photo.
-        const requiredSupport = 1;
-        const score = distances[0];
-        const matchLimit = MATCH_DISTANCE;
-        return { ...identity, distance: score, matchLimit, requiredSupport, supportCount: distances.filter((distance) => distance <= MATCH_DISTANCE).length };
-      }).sort((a, b) => a.distance - b.distance);
-      const nearest = ranked[0] || null;
-      const identityGap = (ranked[1]?.distance ?? Infinity) - (nearest?.distance ?? Infinity);
-      const matched = Boolean(nearest && nearest.supportCount >= nearest.requiredSupport
-        && nearest.distance <= nearest.matchLimit && identityGap >= MIN_IDENTITY_GAP);
-      return {
-        ...face, matched, matchName: matched ? nearest.person.fullName : '',
-        nearestName: nearest?.person.fullName || '', matchDistance: nearest?.distance ?? null,
-        matchLimit: nearest?.matchLimit ?? null,
-        matchSupport: nearest ? `${nearest.supportCount}/${nearest.requiredSupport}` : null,
-        identityGap: Number.isFinite(identityGap) ? identityGap : null, enrollmentCount: enrolled.length
-      };
+    await refreshMatcher(); // Never use stale enrollments when refresh fails.
+    return detections.map((face) => {
+      const match = matcher?.findBestMatch(face.descriptor);
+      const person = match && match.label !== 'unknown' ? enrolled.find((item) => String(item.id) === match.label) : null;
+      return { ...face, matched: Boolean(person), matchName: person?.fullName || '' };
     });
-    // TinyFaceDetector can return two differently-sized boxes for the same face.
-    // Collapse boxes that cover most of the same area so one person cannot be
-    // drawn as both recognized and unknown or counted twice in an alert.
-    const areaOverlap = (a, b) => {
-      const intersection = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
-        * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-      return intersection / Math.min(a.width * a.height, b.width * b.height);
-    };
-    const unique = [];
-    for (const face of classified) {
-      const box = face.detection?.box || face.box;
-      const duplicateIndex = box ? unique.findIndex((candidate) => {
-        const other = candidate.detection?.box || candidate.box;
-        // Face detectors can return nested boxes for one face with different
-        // nearest-name guesses. Collapse only near-identical boxes so the same
-        // person is not drawn twice, while keeping separate nearby people.
-        return other && areaOverlap(box, other) >= 0.65;
-      }) : -1;
-      if (duplicateIndex < 0) {
-        unique.push(face);
-        continue;
-      }
-      const existing = unique[duplicateIndex];
-      // Keep the stronger face box while carrying forward a valid match for
-      // that same identity. A single unknown duplicate must not trigger email.
-      const existingScore = Number(existing.detection?.score ?? -1);
-      const faceScore = Number(face.detection?.score ?? -1);
-      const bestBox = faceScore > existingScore ? face : existing;
-      const match = face.matched ? face : existing.matched ? existing : null;
-      unique[duplicateIndex] = match
-        ? { ...bestBox, matched: true, matchName: match.matchName, matchDistance: match.matchDistance,
-          matchLimit: match.matchLimit, matchSupport: match.matchSupport, identityGap: match.identityGap }
-        : bestBox;
-    }
-    return unique;
   }
   async function loadPeople() {
     if (window.currentRole !== 'admin') return;
     const list = byId('enrolledFaceList');
     try {
       const people = await request('/api/faces');
-      const groups = new Map();
-      for (const person of people) {
-        const key = person.fullName.trim().normalize('NFKC').toLocaleLowerCase();
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(person);
-      }
-      const nameOptions = byId('enrolledFaceNames');
-      if (nameOptions) {
-        nameOptions.replaceChildren();
-        for (const enrollments of groups.values()) {
-          const option = document.createElement('option');
-          option.value = enrollments[0].fullName;
-          nameOptions.appendChild(option);
-        }
-      }
-      byId('enrolledFaceCount').textContent = `${groups.size} people Â· ${people.length} photos`;
+      byId('enrolledFaceCount').textContent = `${people.length} enrolled`;
       list.replaceChildren();
-      if (!groups.size) {
+      if (!people.length) {
         const empty = document.createElement('p');
         empty.className = 'empty';
         empty.textContent = 'No enrolled persons yet. Add a name and a clear picture to begin.';
         list.appendChild(empty);
       }
-      for (const enrollments of groups.values()) {
-        const fullName = enrollments[0].fullName;
+      for (const person of people) {
         const card = document.createElement('article');
-        card.className = 'enrolled-face enrolled-person-group';
-        const heading = document.createElement('div');
-        heading.className = 'enrolled-person-heading';
+        card.className = 'enrolled-face';
+        const photo = document.createElement('img');
+        photo.src = `/api/faces/${person.id}/photo`;
+        photo.alt = `Enrollment picture of ${person.fullName}`;
+        photo.loading = 'lazy';
+        const info = document.createElement('div');
         const name = document.createElement('strong');
-        name.textContent = fullName;
-        const count = document.createElement('span');
-        count.className = 'sub';
-        count.textContent = `${enrollments.length} registered photo${enrollments.length === 1 ? '' : 's'}`;
-        heading.append(name, count);
-        const gallery = document.createElement('div');
-        gallery.className = 'enrolled-person-photos';
-        for (const person of enrollments) {
-          const entry = document.createElement('figure');
-          entry.className = 'enrolled-person-photo';
-          const photo = document.createElement('img');
-          photo.src = `/api/faces/${person.id}/photo`;
-          photo.alt = `${fullName} enrollment photo`;
-          photo.loading = 'lazy';
-          const date = document.createElement('figcaption');
-          date.textContent = new Date(person.enrolledAt).toLocaleString();
-          const remove = document.createElement('button');
-          remove.type = 'button';
-          remove.className = 'btn';
-          remove.textContent = 'Remove photo';
-          remove.addEventListener('click', async () => {
-            if (!confirm(`Remove this enrollment photo for ${fullName}? Other photos for this person will remain.`)) return;
-            remove.disabled = true;
-            try {
-              await request(`/api/faces/${person.id}`, { method: 'DELETE' });
-              invalidate();
-              byId('faceManagementStatus').textContent = `Enrollment photo removed for ${fullName}.`;
-              await loadPeople();
-            } catch (error) { byId('faceManagementStatus').textContent = error.message; }
-            finally { remove.disabled = false; }
-          });
-          entry.append(photo, date, remove);
-          gallery.appendChild(entry);
-        }
-        card.append(heading, gallery);
+        name.textContent = person.fullName;
+        const date = document.createElement('p');
+        date.className = 'sub';
+        date.textContent = `Enrolled ${new Date(person.enrolledAt).toLocaleString()}`;
+        info.append(name, date);
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn';
+        remove.textContent = 'Remove Person';
+        remove.addEventListener('click', async () => {
+          if (!confirm(`Remove ${person.fullName} from enrolled faces? Their picture and enrollment will be deleted.`)) return;
+          remove.disabled = true;
+          try {
+            await request(`/api/faces/${person.id}`, { method: 'DELETE' });
+            invalidate();
+            byId('faceManagementStatus').textContent = `${person.fullName} removed from enrolled faces.`;
+            await loadPeople();
+          } catch (error) { byId('faceManagementStatus').textContent = error.message; }
+          finally { remove.disabled = false; }
+        });
+        card.append(photo, info, remove);
         list.appendChild(card);
       }
     } catch (error) { byId('faceManagementStatus').textContent = error.message; }
@@ -272,31 +107,12 @@
       await loadFaceModels();
       const image = await faceapi.bufferToImage(file);
       const canvas = document.createElement('canvas');
-      const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+      const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight));
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const photoContext = canvas.getContext('2d');
-      photoContext.filter = 'brightness(1.2) contrast(1.05)';
-      photoContext.drawImage(image, 0, 0, canvas.width, canvas.height);
-      photoContext.filter = 'none';
-      status.textContent = 'Trying several face detection settings...';
-      let faces = [];
-      for (const options of [
-        { inputSize: 608, scoreThreshold: 0.35 },
-        { inputSize: 416, scoreThreshold: 0.3 },
-        { inputSize: 320, scoreThreshold: 0.25 }
-      ]) {
-        const candidate = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions(options))
-          .withFaceLandmarks().withFaceDescriptors();
-        if (candidate.length === 1) { faces = candidate; break; }
-        if (candidate.length > 1 && !faces.length) faces = candidate;
-      }
-      if (faces.length !== 1) throw new Error(faces.length ? 'More than one face detected. Please upload a picture with one person.' : 'Could not find a face in this picture. Try a closer or brighter photo where the face is visible.');
-      status.textContent = 'Checking that the detected face belongs to a person...';
-      await rejectAnimalFace(canvas, faces[0]);
-      await refreshMatcher();
-      const enrollmentConflict = conflictingEnrollment(faces[0].descriptor, fullName);
-      if (enrollmentConflict) throw new Error(enrollmentConflict);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      const faces = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.65 })).withFaceLandmarks().withFaceDescriptors();
+      if (faces.length !== 1) throw new Error(faces.length ? 'More than one face found. Upload a picture of one person only.' : 'No clear face found. Use a well-lit, front-facing picture.');
       const photo = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
       if (!photo) throw new Error('Could not prepare the enrollment picture.');
       const body = new FormData();
@@ -315,4 +131,3 @@
   byId('refreshFacesBtn').addEventListener('click', loadPeople);
   window.FaceManagement = { classify, loadPeople, invalidate };
 })();
-
