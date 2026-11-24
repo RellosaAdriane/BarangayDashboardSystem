@@ -123,8 +123,8 @@
           <section class="panel" id="alerts">
             <div class="panel-head"><div><h3>Alerts</h3><div class="sub">Snapshot review queue and camera status changes</div></div><button class="btn" id="reloadAlertsBtn">Refresh alerts</button></div>
             <div class="panel-body">
-              <div class="alert-view-controls"><label for="alertView">Show snapshots</label><select id="alertView" class="form-control"><option value="reports">Reports</option><option value="archived">Archive</option></select></div>
-              <p class="sub" id="alertViewHint">Reports combines snapshots awaiting review with confirmed reports for staff follow-up. Authorized and Visitor snapshots move to Archive.</p>
+              <div class="alert-view-controls"><label for="alertView">Show snapshots</label><select id="alertView" class="form-control"><option value="pending">Pending review</option><option value="archived">Archive</option><option value="reports">Reports</option></select></div>
+              <p class="sub" id="alertViewHint">Review pending snapshots or open confirmed reports separately. Authorized and Visitor snapshots move to Archive.</p>
               <div class="alert-bulk-controls" id="alertBulkControls" hidden><label><input id="selectAllAlerts" type="checkbox"> Select all on this page</label><span class="sub" id="selectedAlertCount">0 selected</span><button class="btn" id="archiveSelectedAlertsBtn" type="button">Archive selected</button><button class="btn danger" id="deleteSelectedAlertsBtn" type="button" hidden>Delete selected</button></div>
               <p class="sub" id="alertLoadStatus" role="status"></p><div class="alert-list" id="alertList"><div class="empty">Loading alerts&#x2026;</div></div>
               <div class="alert-pagination"><button class="btn" id="previousAlertsBtn" type="button" disabled>Previous</button><span class="sub" id="alertPageStatus" role="status">Pending - Page 1</span><button class="btn" id="nextAlertsBtn" type="button" disabled>Next</button></div>
@@ -235,7 +235,7 @@
 </dialog>
 <script src="/mjpeg-avi.js?v=20261114"></script>
 <script src="/device-recordings.js?v=20261123-recordings-submit-syntax-fix"></script>
-<script src="/script.js?v=20261123-reports-single-view"></script>
+<script src="/script.js?v=20261124-separate-alert-views"></script>
 <script src="/faces.js?v=20261123-conservative-match-045"></script>
 <script src="/camera-grid.js?v=20261123-unfamiliar-face-label"></script>
 <script src="/report-notifications.js?v=20261119-snapshot-notifications-v2"></script>
