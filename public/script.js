@@ -10,7 +10,7 @@ let cameraLoadTimer = null;
 let cameraFirstFrameTimer = null;
 let cameraAttempt = 0;
 let snapshotAlerts = [];
-let alertView = 'reports';
+let alertView = 'pending';
 let alertPage = 0;
 let alertHasMore = false;
 let alertLoadRequest = 0;
@@ -75,10 +75,10 @@ function renderAlertFeed() {
   const cards = snapshotAlerts.map((item) => {
     const id = Number(item.id);
     const title = item.reviewNote?.toLowerCase().includes('unrecognized') || item.reviewNote?.toLowerCase().includes('unfamiliar') ? 'Unfamiliar face' : 'Face snapshot';
-    return `<article class="snapshot-alert snapshot-alert-summary">${alertView === 'archived' && window.currentRole === 'admin' ? `<label class="snapshot-select"><input type="checkbox" data-select-alert="${id}" aria-label="Select archived snapshot"></label>` : ''}<button type="button" class="snapshot-thumbnail" data-preview-alert="${id}" aria-label="Preview snapshot"><img src="/api/alerts/${id}/snapshot" loading="lazy" alt="Camera snapshot"></button><div class="snapshot-summary-text"><strong>${title}</strong><p>${escapeHtml(item.cameraName)}</p><time>${escapeHtml(formatDate(item.detectedAt))}</time><span class="tag ${alertStatusClass(item.status)}">${escapeHtml(item.status)}</span>${reportActionBadge(item)}</div><button class="btn" type="button" data-preview-alert="${id}">Preview</button></article>`;
+    return `<article class="snapshot-alert snapshot-alert-summary">${((alertView === 'pending' && ['admin', 'captain'].includes(window.currentRole)) || (alertView === 'archived' && window.currentRole === 'admin')) ? `<label class="snapshot-select"><input type="checkbox" data-select-alert="${id}" aria-label="Select snapshot alert"></label>` : ''}<button type="button" class="snapshot-thumbnail" data-preview-alert="${id}" aria-label="Preview snapshot"><img src="/api/alerts/${id}/snapshot" loading="lazy" alt="Camera snapshot"></button><div class="snapshot-summary-text"><strong>${title}</strong><p>${escapeHtml(item.cameraName)}</p><time>${escapeHtml(formatDate(item.detectedAt))}</time><span class="tag ${alertStatusClass(item.status)}">${escapeHtml(item.status)}</span>${reportActionBadge(item)}</div><button class="btn" type="button" data-preview-alert="${id}">Preview</button></article>`;
   });
-  const statusCards = alertView === 'reports' && alertPage === 0 ? cameraAlerts.slice(0, 5).map((entry) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(entry.title)}</strong><p>${escapeHtml(entry.details)}</p></div><span class="alert-time">${escapeHtml(formatDate(entry.time))}</span></div>`) : [];
-  list.innerHTML = [...cards, ...statusCards].join('') || `<div class="empty">${alertView === 'archived' ? 'No archived snapshots yet. Reviewed snapshots appear here automatically.' : alertView === 'reports' ? 'No face alerts or reports waiting for staff review.' : 'No snapshots waiting for review.'}</div>`;
+  const statusCards = alertView === 'pending' && alertPage === 0 ? cameraAlerts.slice(0, 5).map((entry) => `<div class="alert"><div class="alert-text"><strong>${escapeHtml(entry.title)}</strong><p>${escapeHtml(entry.details)}</p></div><span class="alert-time">${escapeHtml(formatDate(entry.time))}</span></div>`) : [];
+  list.innerHTML = [...cards, ...statusCards].join('') || `<div class="empty">${alertView === 'archived' ? 'No archived snapshots yet. Reviewed snapshots appear here automatically.' : alertView === 'reports' ? 'No snapshots marked Report.' : 'No snapshots waiting for review.'}</div>`;
   list.querySelectorAll('[data-preview-alert]').forEach((button) => button.addEventListener('click', () => openSnapshotPreview(Number(button.dataset.previewAlert))));
   list.querySelectorAll('[data-select-alert]').forEach((checkbox) => {
     checkbox.checked = selectedAlertIds.has(Number(checkbox.dataset.selectAlert));
@@ -234,9 +234,9 @@ window.openPendingSnapshot = async (notification) => {
   if (!response.ok) throw new Error('Could not load the latest snapshot details.');
   const item = await response.json();
   window.location.hash = '#alerts';
-  alertView = 'reports';
+  alertView = 'pending';
   alertPage = 0;
-  $('alertView').value = 'reports';
+  $('alertView').value = 'pending';
   await loadAlerts();
   showSnapshotPreview(item);
 };
